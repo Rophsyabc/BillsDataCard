@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "start": "node server/index.js",
+    "postinstall": "npm run build",
     "cap:sync": "npm run build && npx cap sync",
     "cap:android": "npm run build && npx cap sync android && npx cap open android",
     "cap:ios": "npm run build && npx cap sync ios && npx cap open ios"
@@ -23,6 +24,9 @@
     "@capacitor/keyboard": "^8.0.5",
     "@capacitor/splash-screen": "^8.0.2",
     "@capacitor/status-bar": "^8.0.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.0",
     "axios": "^1.20.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
@@ -32,6 +36,7 @@
     "express-rate-limit": "^8.7.0",
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^10.0.1",
+    "oxlint": "^1.79.0",
     "pdfkit": "^0.20.2",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
@@ -39,13 +44,8 @@
     "react-router-dom": "^7.18.3",
     "speakeasy": "^2.0.0",
     "uuid": "^14.0.2",
+    "vite": "^8.2.2",
     "web-push": "^3.6.7"
   },
-  "devDependencies": {
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
-    "@vitejs/plugin-react": "^6.1.0",
-    "oxlint": "^1.79.0",
-    "vite": "^8.2.2"
-  }
+  "devDependencies": {}
 }
