@@ -16,8 +16,31 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(cors());
+const isProduction = process.env.NODE_ENV === 'production';
+
+// CORS — allow your domain in production
+const allowedOrigins = isProduction && process.env.ALLOWED_ORIGIN
+  ? process.env.ALLOWED_ORIGIN.split(',')
+  : ['http://localhost:4000', 'http://localhost:5173', 'http://127.0.0.1:4000'];
+
+app.use(cors({
+  origin: isProduction ? allowedOrigins : true,
+  credentials: true,
+}));
+
 app.use(express.json());
+
+// Security headers
+if (isProduction) {
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    next();
+  });
+}
+
+// Serve built frontend
 app.use(express.static(path.join(__dirname, '..', 'dist')));
 
 // ── Rate Limiting ──

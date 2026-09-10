@@ -1,0 +1,16 @@
+# cPanel / Apache configuration for Node.js proxy
+# Place this in your public_html directory or alongside your Node.js app
+
+# Enable rewrite engine
+RewriteEngine On
+
+# If the requested file/directory doesn't exist, proxy to Node.js
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Proxy all requests to the Node.js server
+RewriteRule ^(.*)$ http://127.0.0.1:3000/$1 [P,L]
+
+# Proxy WebSocket connections (if needed)
+RewriteCond %{HTTP:Upgrade} =websocket
+RewriteRule /(.*) ws://127.0.0.1:3000/$1 [P,L]
