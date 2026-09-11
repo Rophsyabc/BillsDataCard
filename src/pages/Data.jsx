@@ -1,22 +1,26 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/api';
 import { useApp } from '../context/AppContext';
 import { validatePhoneNetwork } from '../utils/phoneValidation';
 
 const categories = [
+  { id: 'hot_deals', label: 'Hot Deals' },
   { id: 'daily', label: 'Daily' },
   { id: 'weekly', label: 'Weekly' },
   { id: 'monthly', label: 'Monthly' },
-  { id: 'unlimited', label: 'Unlimited' },
+  { id: 'always_on', label: 'Always On' },
+  { id: 'cashback', label: 'Cashback' },
 ];
 
 export default function Data() {
+  const navigate = useNavigate();
   const { balance, refreshBalance } = useApp();
   const [networks, setNetworks] = useState([]);
   const [plans, setPlans] = useState([]);
   const [selectedNetwork, setSelectedNetwork] = useState('');
   const [selectedPlan, setSelectedPlan] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('monthly');
+  const [selectedCategory, setSelectedCategory] = useState('hot_deals');
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [plansLoading, setPlansLoading] = useState(false);
@@ -51,6 +55,15 @@ export default function Data() {
 
   const filteredPlans = plans.filter((p) => p.category === selectedCategory);
 
+  const selectedNetworkObj = networks.find((n) => n.id === selectedNetwork);
+
+  const handleNetworkCycle = () => {
+    if (networks.length === 0) return;
+    const currentIdx = networks.findIndex((n) => n.id === selectedNetwork);
+    const nextIdx = (currentIdx + 1) % networks.length;
+    setSelectedNetwork(networks[nextIdx].id);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -63,7 +76,7 @@ export default function Data() {
     }
 
     const plan = plans.find((p) => p.id === selectedPlan);
-    if (plan.price > balance) {
+    if (plan && plan.price > balance) {
       setResult({ success: false, message: 'Insufficient wallet balance. Please fund your wallet.' });
       setLoading(false);
       return;
@@ -76,19 +89,25 @@ export default function Data() {
 
   return (
     <div className="page">
-      <h2>Buy Data</h2>
-      <p className="subtitle">Purchase data bundles for any network including Smile</p>
-
-      <div className="wallet-balance-card compact">
-        <span className="wb-label">Wallet Balance</span>
-        <span className="wb-amount">₦{balance.toLocaleString()}</span>
+      <div className="data-page-header">
+        <button className="back-btn" onClick={() => navigate(-1)}>
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>
+          </svg>
+        </button>
+        <h2>Buy Data</h2>
+        <a href="/history" className="history-btn">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+        </a>
       </div>
 
       {result && (
-        <div className={`alert ${result.success ? 'alert-success' : 'alert-error'}`}>
+        <div className={`data-result-card ${result.success ? 'success' : 'error'}`}>
           <p>{result.message}</p>
           {result.data && (
-            <div className="result-details">
+            <div className="data-result-details">
               <p><strong>Reference:</strong> {result.data.reference}</p>
               <p><strong>Network:</strong> {result.data.network}</p>
               <p><strong>Plan:</strong> {result.data.plan}</p>
@@ -96,85 +115,123 @@ export default function Data() {
               <p><strong>Amount:</strong> ₦{result.data.amount.toLocaleString()}</p>
             </div>
           )}
-          <button className="btn-close" onClick={() => setResult(null)}>Dismiss</button>
+          <button className="data-dismiss-btn" onClick={() => setResult(null)}>Dismiss</button>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="form-card">
-        <div className="form-group">
-          <label>Select Network</label>
-          <div className="network-grid">
-            {networks.map((net) => (
-              <button
-                key={net.id}
-                type="button"
-                className={`network-btn ${selectedNetwork === net.id ? 'selected' : ''}`}
-                style={{ '--network-color': net.color }}
-                onClick={() => setSelectedNetwork(net.id)}
-              >
-                <img src={net.logo} alt={net.name} className="network-logo-img" />
-                <span>{net.name}</span>
-              </button>
-            ))}
+      <form onSubmit={handleSubmit}>
+        <div className="data-phone-card">
+          <div className="data-phone-inner">
+            <button
+              type="button"
+              className="data-network-select"
+              onClick={handleNetworkCycle}
+            >
+              {selectedNetworkObj ? (
+                <>
+                  <img src={selectedNetworkObj.logo} alt={selectedNetworkObj.name} />
+                  <span>{selectedNetworkObj.name}</span>
+                </>
+              ) : (
+                <span>Select Network</span>
+              )}
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+
+            <div className="data-phone-input">
+              <input
+                type="tel"
+                placeholder={selectedNetwork === 'smile' ? 'Enter Smile number' : 'e.g. 08031234567'}
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                required
+                maxLength={11}
+              />
+              <span className="data-phone-char-count">{phone.length}/11</span>
+            </div>
+
+            <button type="button" className="data-contacts-btn">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </button>
           </div>
+          {phoneError && <p className="data-field-error">{phoneError}</p>}
         </div>
 
-        <div className="form-group">
-          <label>Phone Number</label>
-          <input
-            type="tel"
-            placeholder={selectedNetwork === 'smile' ? 'Enter Smile number' : 'e.g. 08031234567'}
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            required
-            maxLength={11}
-            className={phoneError ? 'input-error' : ''}
-          />
-          {phoneError && <span className="field-error">{phoneError}</span>}
-        </div>
+        <button type="button" className="data-recent-btn">
+          <div className="recent-icon">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+          </div>
+          <span>Buy for recent beneficiaries</span>
+          <span className="recent-arrow">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M9 18l6-6-6-6"/>
+            </svg>
+          </span>
+        </button>
 
         {selectedNetwork && (
-          <div className="form-group">
-            <label>Select Plan</label>
-            <div className="wallet-tabs" style={{ marginBottom: 16 }}>
-              {categories.map((cat) => {
-                const count = plans.filter((p) => p.category === cat.id).length;
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    className={`wallet-tab ${selectedCategory === cat.id ? 'active' : ''}`}
-                    onClick={() => { setSelectedCategory(cat.id); setSelectedPlan(''); }}
-                  >
-                    {cat.label} ({count})
-                  </button>
-                );
-              })}
+          <>
+            <p className="data-select-label">Select a data plan</p>
+
+            <div className="data-category-scroll">
+              {categories.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  className={`data-category-pill ${selectedCategory === cat.id ? 'active' : ''}`}
+                  onClick={() => { setSelectedCategory(cat.id); setSelectedPlan(''); }}
+                >
+                  {cat.label}
+                </button>
+              ))}
             </div>
+
             {plansLoading ? (
-              <div className="loading">Loading plans...</div>
+              <div className="data-plans-loading">Loading plans...</div>
             ) : filteredPlans.length === 0 ? (
-              <div className="empty-state">No {selectedCategory} plans available</div>
+              <div className="data-plans-empty">No plans available in this category</div>
             ) : (
-              <div className="plans-grid">
+              <div className="data-plans-grid">
                 {filteredPlans.map((plan) => (
                   <button
                     key={plan.id}
                     type="button"
-                    className={`plan-card ${selectedPlan === plan.id ? 'selected' : ''}`}
+                    className={`data-plan-card ${selectedPlan === plan.id ? 'selected' : ''}`}
                     onClick={() => setSelectedPlan(plan.id)}
                   >
-                    <span className="plan-size">{plan.size}</span>
-                    <span className="plan-validity">{plan.validity}</span>
-                    <span className="plan-price">₦{plan.price.toLocaleString()}</span>
+                    {plan.cashback && (
+                      <span className="data-plan-cashback">₦{plan.cashback} cashback</span>
+                    )}
+                    <span className="data-plan-size">{plan.size}</span>
+                    <span className="data-plan-price">₦{plan.price.toLocaleString()}</span>
+                    <span className="data-plan-validity">{plan.validity} validity</span>
+                    {plan.description && (
+                      <span className="data-plan-desc">{plan.description}</span>
+                    )}
                   </button>
                 ))}
               </div>
             )}
-          </div>
+          </>
         )}
 
-        <button type="submit" className="btn-primary" disabled={loading || !selectedNetwork || !selectedPlan || !phone}>
+        <button
+          type="submit"
+          className="data-buy-btn"
+          disabled={loading || !selectedNetwork || !selectedPlan || !phone}
+        >
           {loading ? 'Processing...' : 'Buy Data'}
         </button>
       </form>

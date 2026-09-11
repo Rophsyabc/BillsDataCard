@@ -182,8 +182,8 @@ export default function Dashboard() {
         </div>
         <div className="rewards-grid">
           <div className="reward-card">
-            <div className="reward-icon" style={{ background: 'rgba(234,179,8,0.15)' }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="#EAB308">
+            <div className="reward-icon" style={{ background: 'rgba(0,201,167,0.15)' }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="#00C9A7">
                 <circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
               </svg>
             </div>
