@@ -18,13 +18,31 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
 
-// CORS — allow your domain in production
-const allowedOrigins = isProduction && process.env.ALLOWED_ORIGIN
-  ? process.env.ALLOWED_ORIGIN.split(',')
-  : ['http://localhost:4000', 'http://localhost:5173', 'http://127.0.0.1:4000'];
+// CORS — allowed origins including Capacitor mobile origins
+const allowedOrigins = [
+  'https://localhost',      // Android Capacitor
+  'capacitor://localhost',  // iOS Capacitor
+  'http://localhost:5173',  // Vite local
+  'http://localhost:4000',
+  'https://billsdatacard.onrender.com', // Own domain
+];
+
+if (isProduction && process.env.ALLOWED_ORIGIN) {
+  allowedOrigins.push(...process.env.ALLOWED_ORIGIN.split(','));
+}
 
 app.use(cors({
-  origin: isProduction ? allowedOrigins : true,
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.indexOf(origin) !== -1 || !isProduction) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true,
 }));
 
