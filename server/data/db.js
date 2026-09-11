@@ -160,11 +160,13 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS kyc_jobs (
     id TEXT PRIMARY KEY,
     userId TEXT NOT NULL,
-    smileJobId TEXT DEFAULT '',
-    status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'processing', 'verified', 'failed')),
-    idType TEXT DEFAULT 'NIN',
-    idNumber TEXT DEFAULT '',
-    result JSON DEFAULT '{}',
+    status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'verified', 'rejected')),
+    ninNumber TEXT DEFAULT '',
+    nameOnNin TEXT DEFAULT '',
+    ninSlipImage TEXT DEFAULT '',
+    livePhoto TEXT DEFAULT '',
+    adminNote TEXT DEFAULT '',
+    reviewedBy TEXT DEFAULT '',
     createdAt TEXT DEFAULT (datetime('now')),
     updatedAt TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE

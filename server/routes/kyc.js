@@ -1,53 +1,26 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { createRequire } from 'module';
-import crypto from 'crypto';
 import db from '../data/db.js';
 import { authMiddleware } from '../middleware/auth.js';
 
-const require = createRequire(import.meta.url);
-const SIDCore = require('smile-identity-core');
-
 const router = Router();
-
-const SMILE_PARTNER_ID = process.env.SMILE_PARTNER_ID || '';
-const SMILE_API_KEY = process.env.SMILE_API_KEY || '';
-const SMILE_SID_SERVER = process.env.SMILE_SID_SERVER || 'https://testapi.smileidentity.com/v1';
-const SMILE_CALLBACK_URL = process.env.SMILE_CALLBACK_URL || '';
-
-function getSmileWebApi(callbackUrl) {
-  return new SIDCore.WebApi(
-    SMILE_PARTNER_ID,
-    callbackUrl || SMILE_CALLBACK_URL,
-    SMILE_API_KEY,
-    SMILE_SID_SERVER
-  );
-}
-
-function isSmileConfigured() {
-  return SMILE_PARTNER_ID && SMILE_API_KEY;
-}
 
 // Get KYC status for current user
 router.get('/status', authMiddleware, (req, res) => {
   try {
-    const user = db.prepare('SELECT kycStatus, kycType, kycDocument, phone, phoneVerified, emailVerified FROM users WHERE id = ?').get(req.user.id);
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
+    const user = db.prepare('SELECT kycStatus, kycType, phone, phoneVerified, emailVerified FROM users WHERE id = ?').get(req.user.id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    const latestJob = db.prepare('SELECT id, status, createdAt FROM kyc_jobs WHERE userId = ? ORDER BY createdAt DESC LIMIT 1').get(req.user.id);
+    const latestJob = db.prepare('SELECT id, status, nameOnNin, createdAt, updatedAt FROM kyc_jobs WHERE userId = ? ORDER BY createdAt DESC LIMIT 1').get(req.user.id);
 
     res.json({
       success: true,
       data: {
         status: user.kycStatus || 'none',
         type: user.kycType || '',
-        document: user.kycDocument || '',
         phoneVerified: !!user.phoneVerified,
         emailVerified: !!user.emailVerified,
         canRequestWithdrawal: user.kycStatus === 'verified',
-        smileConfigured: isSmileConfigured(),
         latestJob: latestJob || null,
       },
     });
@@ -57,204 +30,77 @@ router.get('/status', authMiddleware, (req, res) => {
   }
 });
 
-// Generate Smile Identity web token for Smart Camera
-router.post('/smile-token', authMiddleware, async (req, res) => {
+// Submit KYC: NIN slip + live photo + name on NIN
+router.post('/submit', authMiddleware, (req, res) => {
   try {
-    if (!isSmileConfigured()) {
-      return res.status(503).json({ success: false, message: 'Smile Identity not configured' });
-    }
-
-    const user = db.prepare('SELECT kycStatus FROM users WHERE id = ?').get(req.user.id);
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-    if (user.kycStatus === 'verified') return res.status(400).json({ success: false, message: 'KYC already verified' });
-
-    const jobId = `KYC-${uuidv4().slice(0, 8)}`;
-
-    const webApi = getSmileWebApi();
-    const tokenResult = await webApi.get_web_token({
-      callback_url: SMILE_CALLBACK_URL,
-      user_id: req.user.id,
-      job_id: jobId,
-      product: 'document_verification',
-    });
-
-    db.prepare('INSERT INTO kyc_jobs (id, userId, smileJobId, status, idType) VALUES (?, ?, ?, ?, ?)').run(
-      jobId, req.user.id, '', 'pending', 'NIN'
-    );
-
-    res.json({
-      success: true,
-      data: {
-        token: tokenResult.token,
-        jobId,
-      },
-    });
-  } catch (err) {
-    console.error('[kyc] smile-token error:', err.message);
-    res.status(500).json({ success: false, message: 'Failed to generate Smile token' });
-  }
-});
-
-// Submit KYC verification to Smile Identity (server-to-server)
-router.post('/smile-submit', authMiddleware, async (req, res) => {
-  try {
-    if (!isSmileConfigured()) {
-      return res.status(503).json({ success: false, message: 'Smile Identity not configured' });
-    }
-
-    const { ninNumber, selfieImage, livenessImages, documentImage } = req.body;
+    const { ninNumber, nameOnNin, ninSlipImage, livePhoto } = req.body;
 
     if (!ninNumber || !/^\d{11}$/.test(ninNumber)) {
       return res.status(400).json({ success: false, message: 'Valid 11-digit NIN is required' });
     }
 
-    const user = db.prepare('SELECT kycStatus FROM users WHERE id = ?').get(req.user.id);
+    if (!nameOnNin || nameOnNin.trim().length < 3) {
+      return res.status(400).json({ success: false, message: 'Name on NIN is required' });
+    }
+
+    if (!ninSlipImage) {
+      return res.status(400).json({ success: false, message: 'NIN slip image is required' });
+    }
+
+    if (!livePhoto) {
+      return res.status(400).json({ success: false, message: 'Live photo is required' });
+    }
+
+    const user = db.prepare('SELECT id, name, kycStatus FROM users WHERE id = ?').get(req.user.id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
     if (user.kycStatus === 'verified') return res.status(400).json({ success: false, message: 'KYC already verified' });
 
-    if (!selfieImage) {
-      return res.status(400).json({ success: false, message: 'Selfie image is required' });
+    // Check for existing pending submission
+    const existing = db.prepare('SELECT id FROM kyc_jobs WHERE userId = ? AND status = ?').get(req.user.id, 'pending');
+    if (existing) {
+      return res.status(400).json({ success: false, message: 'You already have a pending KYC submission' });
+    }
+
+    // Name match check
+    const signupName = user.name.toLowerCase().trim();
+    const submittedName = nameOnNin.toLowerCase().trim();
+    const nameMatch = signupName === submittedName || signupName.includes(submittedName) || submittedName.includes(signupName);
+
+    if (!nameMatch) {
+      return res.status(400).json({
+        success: false,
+        message: `Name on NIN ("${nameOnNin}") does not match your signup name ("${user.name}"). Please contact support if this is an error.`,
+      });
     }
 
     const jobId = `KYC-${uuidv4().slice(0, 8)}`;
 
-    const imageDetails = [
-      { image_type_id: SIDCore.IMAGE_TYPE.SELFIE_IMAGE_BASE64, image: selfieImage },
-    ];
-
-    if (livenessImages && Array.isArray(livenessImages)) {
-      livenessImages.forEach((img) => {
-        imageDetails.push({ image_type_id: SIDCore.IMAGE_TYPE.LIVENESS_IMAGE_BASE64, image: img });
-      });
-    }
-
-    if (documentImage) {
-      imageDetails.push({ image_type_id: SIDCore.IMAGE_TYPE.ID_CARD_IMAGE_BASE64, image: documentImage });
-    }
-
-    const partnerParams = {
-      user_id: req.user.id,
-      job_id: jobId,
-      job_type: SIDCore.JOB_TYPE.DOCUMENT_VERIFICATION,
-    };
-
-    const idInfo = {
-      entered: true,
-      country: 'NG',
-      id_type: 'NIN',
-      id_number: ninNumber,
-    };
-
-    const webApi = getSmileWebApi();
-    const result = await webApi.submit_job(
-      partnerParams,
-      imageDetails,
-      idInfo,
-      {
-        return_job_status: true,
-        return_images: false,
-        return_history: false,
-      }
+    db.prepare('INSERT INTO kyc_jobs (id, userId, status, ninNumber, nameOnNin, ninSlipImage, livePhoto) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+      jobId, req.user.id, 'pending', ninNumber, nameOnNin.trim(), ninSlipImage, livePhoto
     );
 
-    const smileJobId = result.smile_job_id || jobId;
-    const resultJson = JSON.stringify(result);
-
-    db.prepare('UPDATE kyc_jobs SET smileJobId = ?, status = ?, idNumber = ?, result = ?, updatedAt = datetime(\'now\') WHERE id = ?').run(
-      smileJobId,
-      result.job_complete ? (result.Result?.ResultText === 'Approved' ? 'verified' : 'failed') : 'processing',
-      ninNumber,
-      resultJson,
-      jobId
-    );
-
-    if (result.job_complete && result.Result?.ResultText === 'Approved') {
-      db.prepare('UPDATE users SET kycStatus = \'verified\', kycType = \'NIN\', kycDocument = ? WHERE id = ?').run(
-        `smile:${smileJobId}`,
-        req.user.id
-      );
-    }
+    db.prepare('UPDATE users SET kycStatus = ? WHERE id = ?').run('pending', req.user.id);
 
     res.json({
       success: true,
-      data: {
-        jobId,
-        smileJobId,
-        status: result.job_complete ? (result.Result?.ResultText === 'Approved' ? 'verified' : 'failed') : 'processing',
-        result: result.Result || null,
-      },
+      message: 'KYC submitted for review. You will be notified once verified.',
+      data: { jobId, status: 'pending' },
     });
   } catch (err) {
-    console.error('[kyc] smile-submit error:', err.message);
-    res.status(500).json({ success: false, message: err.message || 'Failed to submit verification' });
+    console.error('[kyc] submit error:', err.message);
+    res.status(500).json({ success: false, message: 'Failed to submit KYC' });
   }
 });
 
-// Smile Identity callback endpoint
-router.post('/smile-callback', (req, res) => {
-  try {
-    const { smile_job_id, result, partner_params } = req.body;
-
-    console.log('[kyc] Smile callback received:', { smile_job_id, userId: partner_params?.user_id });
-
-    if (!partner_params?.user_id || !smile_job_id) {
-      return res.status(400).json({ success: false, message: 'Invalid callback data' });
-    }
-
-    const job = db.prepare('SELECT * FROM kyc_jobs WHERE userId = ? AND (smileJobId = ? OR id = ?)').get(
-      partner_params.user_id, smile_job_id, partner_params.job_id
-    );
-
-    if (!job) {
-      console.warn('[kyc] Callback for unknown job:', smile_job_id);
-      return res.json({ success: true });
-    }
-
-    const isApproved = result?.Result?.ResultText === 'Approved';
-    const newStatus = isApproved ? 'verified' : 'failed';
-
-    db.prepare('UPDATE kyc_jobs SET status = ?, result = ?, updatedAt = datetime(\'now\') WHERE id = ?').run(
-      newStatus, JSON.stringify(result), job.id
-    );
-
-    if (isApproved) {
-      db.prepare('UPDATE users SET kycStatus = \'verified\', kycType = \'NIN\', kycDocument = ? WHERE id = ?').run(
-        `smile:${smile_job_id}`, partner_params.user_id
-      );
-    } else {
-      db.prepare('UPDATE users SET kycStatus = \'failed\' WHERE id = ?').run(partner_params.user_id);
-    }
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[kyc] callback error:', err.message);
-    res.status(500).json({ success: false, message: 'Callback processing failed' });
-  }
-});
-
-// Check job status
+// Get job details (for user)
 router.get('/job/:id', authMiddleware, (req, res) => {
   try {
-    const job = db.prepare('SELECT * FROM kyc_jobs WHERE id = ? AND userId = ?').get(req.params.id, req.user.id);
+    const job = db.prepare('SELECT id, status, nameOnNin, ninNumber, adminNote, createdAt, updatedAt FROM kyc_jobs WHERE id = ? AND userId = ?').get(req.params.id, req.user.id);
     if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
-
-    let parsedResult = {};
-    try { parsedResult = JSON.parse(job.result || '{}'); } catch {}
-
-    res.json({
-      success: true,
-      data: {
-        id: job.id,
-        status: job.status,
-        idType: job.idType,
-        createdAt: job.createdAt,
-        updatedAt: job.updatedAt,
-        result: parsedResult?.Result || null,
-      },
-    });
+    res.json({ success: true, data: job });
   } catch (err) {
     console.error('[kyc] job error:', err.message);
-    res.status(500).json({ success: false, message: 'Failed to get job status' });
+    res.status(500).json({ success: false, message: 'Failed to get job' });
   }
 });
 
@@ -293,26 +139,35 @@ router.post('/send-phone-otp', authMiddleware, (req, res) => {
   }
 });
 
-// Admin: Get pending KYC submissions
+// Admin: Get all KYC submissions
 router.get('/admin/pending', authMiddleware, (req, res) => {
   try {
     const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user.id);
     if (!user || user.role !== 'admin') return res.status(403).json({ success: false, message: 'Admin access required' });
 
-    const pending = db.prepare(`
-      SELECT u.id, u.name, u.email, u.kycStatus, u.kycType, u.kycDocument, u.createdAt,
-             w.balance, kj.id as jobId, kj.status as jobStatus, kj.smileJobId, kj.idNumber, kj.result
-      FROM users u
-      LEFT JOIN wallet w ON w.userId = u.id
-      LEFT JOIN kyc_jobs kj ON kj.userId = u.id
-      WHERE u.kycStatus IN ('pending', 'failed')
-      ORDER BY u.createdAt DESC
-    `).all();
+    const { status } = req.query;
+    let query = `
+      SELECT kj.id, kj.userId, kj.status, kj.ninNumber, kj.nameOnNin, kj.ninSlipImage, kj.livePhoto, kj.adminNote, kj.createdAt, kj.updatedAt,
+             u.name as userName, u.email as userEmail, u.phone as userPhone
+      FROM kyc_jobs kj
+      JOIN users u ON u.id = kj.userId
+    `;
+    const params = [];
 
-    res.json({ success: true, data: pending });
+    if (status) {
+      query += ' WHERE kj.status = ?';
+      params.push(status);
+    } else {
+      query += " WHERE kj.status IN ('pending', 'verified', 'rejected')";
+    }
+
+    query += ' ORDER BY kj.createdAt DESC LIMIT 50';
+    const jobs = db.prepare(query).all(...params);
+
+    res.json({ success: true, data: jobs });
   } catch (err) {
     console.error('[kyc] admin pending error:', err.message);
-    res.status(500).json({ success: false, message: 'Failed to get pending KYC' });
+    res.status(500).json({ success: false, message: 'Failed to get KYC submissions' });
   }
 });
 
@@ -322,18 +177,25 @@ router.post('/admin/review', authMiddleware, (req, res) => {
     const adminUser = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user.id);
     if (!adminUser || adminUser.role !== 'admin') return res.status(403).json({ success: false, message: 'Admin access required' });
 
-    const { userId, action } = req.body;
-    if (!userId || !action || !['approve', 'reject'].includes(action)) {
-      return res.status(400).json({ success: false, message: 'userId and action (approve/reject) required' });
+    const { jobId, action, note } = req.body;
+    if (!jobId || !action || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'jobId and action (approve/reject) required' });
     }
 
-    const targetUser = db.prepare('SELECT kycStatus FROM users WHERE id = ?').get(userId);
-    if (!targetUser) return res.status(404).json({ success: false, message: 'User not found' });
+    const job = db.prepare('SELECT * FROM kyc_jobs WHERE id = ?').get(jobId);
+    if (!job) return res.status(404).json({ success: false, message: 'KYC job not found' });
 
     const newStatus = action === 'approve' ? 'verified' : 'rejected';
-    db.prepare('UPDATE users SET kycStatus = ? WHERE id = ?').run(newStatus, userId);
 
-    res.json({ success: true, message: `KYC ${action}d successfully`, data: { userId, status: newStatus } });
+    db.prepare('UPDATE kyc_jobs SET status = ?, adminNote = ?, reviewedBy = ?, updatedAt = datetime(\'now\') WHERE id = ?').run(
+      newStatus, note || '', req.user.id, jobId
+    );
+
+    db.prepare('UPDATE users SET kycStatus = ?, kycType = ? WHERE id = ?').run(
+      newStatus, 'NIN', job.userId
+    );
+
+    res.json({ success: true, message: `KYC ${action}d successfully`, data: { jobId, status: newStatus } });
   } catch (err) {
     console.error('[kyc] admin review error:', err.message);
     res.status(500).json({ success: false, message: 'Failed to review KYC' });

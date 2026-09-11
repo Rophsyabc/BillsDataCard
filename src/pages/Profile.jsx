@@ -19,12 +19,12 @@ export default function Profile() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [kycStatus, setKycStatus] = useState(null);
-  const [kycStep, setKycStep] = useState('idle');
+  const [nameOnNin, setNameOnNin] = useState('');
   const [ninNumber, setNinNumber] = useState('');
-  const [jobId, setJobId] = useState('');
-  const [jobResult, setJobResult] = useState(null);
-  const [cameraReady, setCameraReady] = useState(false);
-  const [cameraError, setCameraError] = useState('');
+  const [ninSlipImage, setNinSlipImage] = useState(null);
+  const [ninSlipPreview, setNinSlipPreview] = useState(null);
+  const [livePhoto, setLivePhoto] = useState(null);
+  const [livePhotoPreview, setLivePhotoPreview] = useState(null);
   const [phoneOtp, setPhoneOtp] = useState('');
   const [phoneSent, setPhoneSent] = useState(false);
 
@@ -45,94 +45,73 @@ export default function Profile() {
     }
   };
 
-  const handleStartKyc = async () => {
-    if (!/^\d{11}$/.test(ninNumber)) {
-      setResult({ success: false, message: 'NIN must be 11 digits' });
+  const handleFileSelect = (e, type) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setResult({ success: false, message: 'File must be under 5MB' });
       return;
     }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      if (type === 'nin') {
+        setNinSlipImage(ev.target.result);
+        setNinSlipPreview(ev.target.result);
+      } else {
+        setLivePhoto(ev.target.result);
+        setLivePhotoPreview(ev.target.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleCaptureLivePhoto = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } });
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.play();
+      await new Promise(r => setTimeout(r, 1500));
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      stream.getTracks().forEach(t => t.stop());
+      setLivePhoto(dataUrl);
+      setLivePhotoPreview(dataUrl);
+    } catch {
+      setResult({ success: false, message: 'Camera access denied. Please use file upload instead.' });
+    }
+  };
+
+  const handleSubmitKyc = async () => {
+    if (!/^\d{11}$/.test(ninNumber)) { setResult({ success: false, message: 'NIN must be 11 digits' }); return; }
+    if (!nameOnNin.trim()) { setResult({ success: false, message: 'Enter your name as it appears on NIN' }); return; }
+    if (!ninSlipImage) { setResult({ success: false, message: 'Upload your NIN slip' }); return; }
+    if (!livePhoto) { setResult({ success: false, message: 'Upload or capture your live photo' }); return; }
+
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/kyc/smile-token`, {
+      const res = await fetch(`${API_BASE}/api/kyc/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ninNumber, nameOnNin: nameOnNin.trim(), ninSlipImage, livePhoto }),
       });
       const data = await res.json();
+      setResult(data);
       if (data.success) {
-        setJobId(data.data.jobId);
-        setKycStep('camera');
-        setCameraReady(false);
-        setCameraError('');
-      } else {
-        setResult(data);
+        fetchKycStatus();
+        setNinNumber('');
+        setNameOnNin('');
+        setNinSlipImage(null);
+        setNinSlipPreview(null);
+        setLivePhoto(null);
+        setLivePhotoPreview(null);
       }
     } catch {
-      setResult({ success: false, message: 'Failed to start verification' });
+      setResult({ success: false, message: 'Failed to submit KYC' });
     }
-    setLoading(false);
-  };
-
-  const handleCameraReady = () => setCameraReady(true);
-
-  const handleCameraError = (e) => {
-    setCameraError(e.detail?.message || 'Camera access denied');
-    setCameraReady(false);
-  };
-
-  const handleImagesCaptured = async (e) => {
-    setLoading(true);
-    setKycStep('processing');
-    try {
-      const images = e.detail?.images || [];
-      const selfieImg = images.find(i => i.image_type_id === 0 || i.image_type_id === 2);
-      const livenessImgs = images.filter(i => i.image_type_id === 4 || i.image_type_id === 6);
-      const docImg = images.find(i => i.image_type_id === 1 || i.image_type_id === 3);
-
-      const body = {
-        ninNumber,
-        selfieImage: selfieImg?.image || '',
-        livenessImages: livenessImgs.map(i => i.image),
-        documentImage: docImg?.image || '',
-      };
-
-      const res = await fetch(`${API_BASE}/api/kyc/smile-submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setJobResult(data.data);
-        setKycStep(data.data.status === 'verified' ? 'verified' : data.data.status === 'failed' ? 'failed' : 'processing');
-        if (data.data.status === 'verified') fetchKycStatus();
-      } else {
-        setResult(data);
-        setKycStep('idle');
-      }
-    } catch {
-      setResult({ success: false, message: 'Failed to submit verification' });
-      setKycStep('idle');
-    }
-    setLoading(false);
-  };
-
-  const pollJobStatus = async () => {
-    if (!jobId) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/kyc/job/${jobId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.success) {
-        setJobResult(data.data);
-        if (data.data.status === 'verified' || data.data.status === 'failed') {
-          setKycStep(data.data.status);
-          fetchKycStatus();
-        } else {
-          setTimeout(pollJobStatus, 3000);
-        }
-      }
-    } catch {}
     setLoading(false);
   };
 
@@ -449,7 +428,7 @@ export default function Profile() {
         <div className="form-card">
           <h3 style={{ marginBottom: '8px' }}>Identity Verification</h3>
           <p style={{ marginBottom: '16px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-            Verify your NIN with live photo capture to unlock all features.
+            Upload your NIN slip and a live photo to verify your identity.
           </p>
 
           {kycStatus && (
@@ -458,16 +437,21 @@ export default function Profile() {
                 <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Verification Status</span>
                 <span style={{
                   padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600,
-                  background: kycStatus.status === 'verified' ? 'rgba(16,185,129,0.1)' : kycStatus.status === 'pending' || kycStatus.status === 'processing' ? 'rgba(245,158,11,0.1)' : kycStatus.status === 'failed' ? 'rgba(239,68,68,0.1)' : 'rgba(100,116,139,0.1)',
-                  color: kycStatus.status === 'verified' ? 'var(--success)' : kycStatus.status === 'pending' || kycStatus.status === 'processing' ? 'var(--warning)' : kycStatus.status === 'failed' ? 'var(--error)' : 'var(--text-secondary)',
+                  background: kycStatus.status === 'verified' ? 'rgba(16,185,129,0.1)' : kycStatus.status === 'pending' ? 'rgba(245,158,11,0.1)' : kycStatus.status === 'rejected' ? 'rgba(239,68,68,0.1)' : 'rgba(100,116,139,0.1)',
+                  color: kycStatus.status === 'verified' ? 'var(--success)' : kycStatus.status === 'pending' ? 'var(--warning)' : kycStatus.status === 'rejected' ? 'var(--error)' : 'var(--text-secondary)',
                 }}>
-                  {kycStatus.status === 'verified' ? 'Verified' : kycStatus.status === 'pending' || kycStatus.status === 'processing' ? 'Processing...' : kycStatus.status === 'failed' ? 'Failed' : 'Not Started'}
+                  {kycStatus.status === 'verified' ? 'Verified' : kycStatus.status === 'pending' ? 'Under Review' : kycStatus.status === 'rejected' ? 'Rejected' : 'Not Started'}
                 </span>
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                 <span>Email: {kycStatus.emailVerified ? 'Verified' : 'Not Verified'}</span>
                 <span>Phone: {kycStatus.phoneVerified ? 'Verified' : 'Not Verified'}</span>
               </div>
+              {kycStatus.latestJob?.adminNote && (
+                <div style={{ marginTop: '8px', padding: '8px', background: 'rgba(239,68,68,0.05)', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--error)' }}>
+                  Note: {kycStatus.latestJob.adminNote}
+                </div>
+              )}
             </div>
           )}
 
@@ -495,96 +479,85 @@ export default function Profile() {
             </div>
           )}
 
-          {/* Step 2: NIN + Camera */}
-          {kycStatus && kycStatus.status !== 'verified' && kycStatus.status !== 'pending' && kycStep === 'idle' && (
+          {/* Step 2: KYC Submission */}
+          {kycStatus && kycStatus.status !== 'verified' && kycStatus.status !== 'pending' && (
             <div style={{ padding: '14px', background: 'var(--bg)', borderRadius: '10px' }}>
-              <h4 style={{ marginBottom: '10px', fontSize: '0.9rem' }}>Step 2: NIN Verification</h4>
-              <p style={{ marginBottom: '12px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                Enter your 11-digit NIN, then capture your NIN slip + live selfie with smile and eye blink.
-              </p>
+              <h4 style={{ marginBottom: '10px', fontSize: '0.9rem' }}>Step 2: Upload Documents</h4>
+
               <div className="form-group" style={{ marginBottom: '12px' }}>
                 <label style={{ fontSize: '0.8rem' }}>NIN Number</label>
                 <input type="text" value={ninNumber} onChange={(e) => setNinNumber(e.target.value.replace(/\D/g, ''))} placeholder="11-digit NIN" maxLength={11} style={{ width: '100%', fontFamily: 'monospace', letterSpacing: '2px' }} />
               </div>
-              <button className="btn-primary" onClick={handleStartKyc} disabled={loading || ninNumber.length !== 11} style={{ width: '100%' }}>
-                {loading ? 'Starting...' : 'Start Camera Verification'}
-              </button>
-            </div>
-          )}
 
-          {/* Step 3: Camera */}
-          {kycStep === 'camera' && (
-            <div style={{ padding: '14px', background: 'var(--bg)', borderRadius: '10px' }}>
-              <h4 style={{ marginBottom: '10px', fontSize: '0.9rem' }}>Live Capture</h4>
-              <p style={{ marginBottom: '12px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                Capture your NIN slip, then take a selfie with liveness (smile + blink).
-              </p>
-              {cameraError && (
-                <div style={{ padding: '10px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px', color: 'var(--error)', marginBottom: '12px', fontSize: '0.85rem' }}>
-                  {cameraError}
-                </div>
-              )}
-              <div style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', background: '#000' }}>
-                <smart-camera-web
-                  capture-id="back"
-                  onReady={handleCameraReady}
-                  onError={handleCameraError}
-                  onImagesComputed={handleImagesCaptured}
-                />
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '0.8rem' }}>Name on NIN (must match signup name)</label>
+                <input type="text" value={nameOnNin} onChange={(e) => setNameOnNin(e.target.value)} placeholder="Full name as on NIN slip" style={{ width: '100%' }} />
               </div>
-              <button className="btn-secondary" onClick={() => setKycStep('idle')} style={{ width: '100%', marginTop: '10px' }}>
-                Cancel
+
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '0.8rem' }}>NIN Slip Photo</label>
+                <input type="file" accept="image/*" onChange={(e) => handleFileSelect(e, 'nin')} style={{ width: '100%', fontSize: '0.85rem' }} />
+                {ninSlipPreview && (
+                  <div style={{ marginTop: '8px' }}>
+                    <img src={ninSlipPreview} alt="NIN Slip" style={{ width: '100%', maxHeight: '200px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border)' }} />
+                  </div>
+                )}
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '0.8rem' }}>Live Photo (selfie)</label>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <input type="file" accept="image/*" capture="user" onChange={(e) => handleFileSelect(e, 'photo')} style={{ flex: 1, fontSize: '0.85rem' }} />
+                  <button type="button" className="btn-secondary" onClick={handleCaptureLivePhoto} style={{ fontSize: '0.8rem', padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                    Use Camera
+                  </button>
+                </div>
+                {livePhotoPreview && (
+                  <div style={{ marginTop: '8px' }}>
+                    <img src={livePhotoPreview} alt="Live Photo" style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '50%', border: '2px solid var(--primary)' }} />
+                  </div>
+                )}
+              </div>
+
+              <button className="btn-primary" onClick={handleSubmitKyc} disabled={loading || !ninNumber || !nameOnNin || !ninSlipImage || !livePhoto} style={{ width: '100%' }}>
+                {loading ? 'Submitting...' : 'Submit for Verification'}
               </button>
             </div>
           )}
 
-          {/* Processing */}
-          {kycStep === 'processing' && (
+          {/* Pending */}
+          {kycStatus?.status === 'pending' && (
             <div style={{ padding: '20px', background: 'rgba(245,158,11,0.1)', borderRadius: '10px', textAlign: 'center' }}>
               <div style={{ fontSize: '2rem', marginBottom: '8px' }}>&#9203;</div>
-              <p style={{ color: 'var(--warning)', fontWeight: 600 }}>Verifying your identity...</p>
+              <p style={{ color: 'var(--warning)', fontWeight: 600 }}>Under Review</p>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                This may take a few moments. Please don't close this page.
+                Your KYC is being reviewed. This usually takes 24-48 hours.
               </p>
-              <button className="btn-secondary" onClick={pollJobStatus} disabled={loading} style={{ marginTop: '12px' }}>
-                {loading ? 'Checking...' : 'Check Status'}
-              </button>
             </div>
           )}
 
           {/* Verified */}
-          {kycStep === 'verified' && (
-            <div style={{ padding: '20px', background: 'rgba(16,185,129,0.1)', borderRadius: '10px', textAlign: 'center' }}>
-              <div style={{ fontSize: '2rem', marginBottom: '8px' }}>&#10003;</div>
-              <p style={{ color: 'var(--success)', fontWeight: 600 }}>Identity Verified!</p>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                Your NIN has been verified. You now have full access.
-              </p>
-            </div>
-          )}
-
-          {/* Failed */}
-          {kycStep === 'failed' && (
-            <div style={{ padding: '20px', background: 'rgba(239,68,68,0.1)', borderRadius: '10px', textAlign: 'center' }}>
-              <div style={{ fontSize: '2rem', marginBottom: '8px' }}>&#10007;</div>
-              <p style={{ color: 'var(--error)', fontWeight: 600 }}>Verification Failed</p>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', marginBottom: '12px' }}>
-                {jobResult?.result?.ResultText || 'Unable to verify your identity. Please try again.'}
-              </p>
-              <button className="btn-primary" onClick={() => { setKycStep('idle'); setJobResult(null); setNinNumber(''); }} style={{ width: '100%' }}>
-                Try Again
-              </button>
-            </div>
-          )}
-
-          {/* Already verified */}
-          {kycStatus?.status === 'verified' && kycStep === 'idle' && (
+          {kycStatus?.status === 'verified' && (
             <div style={{ padding: '20px', background: 'rgba(16,185,129,0.1)', borderRadius: '10px', textAlign: 'center' }}>
               <div style={{ fontSize: '2rem', marginBottom: '8px' }}>&#10003;</div>
               <p style={{ color: 'var(--success)', fontWeight: 600 }}>Identity Verified</p>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 Your identity has been verified. You have full access to all features.
               </p>
+            </div>
+          )}
+
+          {/* Rejected */}
+          {kycStatus?.status === 'rejected' && (
+            <div style={{ padding: '20px', background: 'rgba(239,68,68,0.1)', borderRadius: '10px', textAlign: 'center' }}>
+              <div style={{ fontSize: '2rem', marginBottom: '8px' }}>&#10007;</div>
+              <p style={{ color: 'var(--error)', fontWeight: 600 }}>Verification Rejected</p>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', marginBottom: '12px' }}>
+                {kycStatus.latestJob?.adminNote || 'Your verification was rejected. Please try again with clear photos.'}
+              </p>
+              <button className="btn-primary" onClick={() => fetchKycStatus()} style={{ width: '100%' }}>
+                Try Again
+              </button>
             </div>
           )}
         </div>
