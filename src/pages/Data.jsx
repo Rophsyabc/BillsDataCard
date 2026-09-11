@@ -10,7 +10,11 @@ const categories = [
   { id: 'weekly', label: 'Weekly' },
   { id: 'monthly', label: 'Monthly' },
   { id: 'always_on', label: 'Always On' },
-  { id: 'cashback', label: 'Cashback' },
+  { id: 'mega', label: 'Mega Plan' },
+  { id: 'social', label: 'Social Plan' },
+  { id: 'night', label: 'Night Plan' },
+  { id: 'router', label: 'Router Plan' },
+  { id: 'youtube', label: 'YouTube' },
 ];
 
 export default function Data() {
