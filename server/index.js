@@ -9,6 +9,7 @@ import authRoutes from './routes/auth.js';
 import paymentRoutes from './routes/payment.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
+import kycRoutes from './routes/kyc.js';
 import { apiLimiter, paymentLimiter, authLimiter } from './middleware/rateLimit.js';
 import { authMiddleware } from './middleware/auth.js';
 import db from './data/db.js';
@@ -81,6 +82,7 @@ app.use('/auth', authRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/kyc', kycRoutes);
 
 const networks = [
   { id: 'mtn', name: 'MTN' },

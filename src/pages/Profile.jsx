@@ -18,10 +18,84 @@ export default function Profile() {
   const [twoFACode, setTwoFACode] = useState('');
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [kycStatus, setKycStatus] = useState(null);
+  const [kycType, setKycType] = useState('');
+  const [kycBvn, setKycBvn] = useState('');
+  const [phoneOtp, setPhoneOtp] = useState('');
+  const [phoneSent, setPhoneSent] = useState(false);
+  const [verifyPhone, setVerifyPhone] = useState('');
 
   useEffect(() => {
     fetchSessions();
+    fetchKycStatus();
   }, []);
+
+  const fetchKycStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/kyc/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) setKycStatus(data.data);
+    } catch (e) {
+      console.error('Failed to fetch KYC status:', e);
+    }
+  };
+
+  const handleSubmitKyc = async () => {
+    if (!kycType) { setResult({ success: false, message: 'Please select an ID type' }); return; }
+    if (kycType === 'bvn' && !/^\d{11}$/.test(kycBvn)) { setResult({ success: false, message: 'BVN must be 11 digits' }); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/kyc/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ type: kycType, bvn: kycBvn }),
+      });
+      const data = await res.json();
+      setResult(data);
+      if (data.success) fetchKycStatus();
+    } catch {
+      setResult({ success: false, message: 'Failed to submit KYC' });
+    }
+    setLoading(false);
+  };
+
+  const handleSendPhoneOtp = async () => {
+    if (!phone) { setResult({ success: false, message: 'Enter your phone number first' }); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/kyc/send-phone-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ phone }),
+      });
+      const data = await res.json();
+      setResult(data);
+      if (data.success) setPhoneSent(true);
+    } catch {
+      setResult({ success: false, message: 'Failed to send OTP' });
+    }
+    setLoading(false);
+  };
+
+  const handleVerifyPhone = async () => {
+    if (!/^\d{6}$/.test(phoneOtp)) { setResult({ success: false, message: 'Enter 6-digit OTP' }); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/kyc/verify-phone`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ phone, otp: phoneOtp }),
+      });
+      const data = await res.json();
+      setResult(data);
+      if (data.success) fetchKycStatus();
+    } catch {
+      setResult({ success: false, message: 'Failed to verify phone' });
+    }
+    setLoading(false);
+  };
 
   const fetchSessions = async () => {
     try {
@@ -182,6 +256,7 @@ export default function Profile() {
         <button className={`wallet-tab ${activeTab === 'profile' ? 'active' : ''}`} onClick={() => setActiveTab('profile')}>Profile</button>
         <button className={`wallet-tab ${activeTab === 'security' ? 'active' : ''}`} onClick={() => setActiveTab('security')}>Security</button>
         <button className={`wallet-tab ${activeTab === 'sessions' ? 'active' : ''}`} onClick={() => setActiveTab('sessions')}>Sessions</button>
+        <button className={`wallet-tab ${activeTab === 'kyc' ? 'active' : ''}`} onClick={() => setActiveTab('kyc')}>KYC</button>
         <button className={`wallet-tab ${activeTab === 'referral' ? 'active' : ''}`} onClick={() => setActiveTab('referral')}>Referral</button>
         {user?.role === 'admin' && (
           <button className="wallet-tab" onClick={() => window.location.href = '/admin'}>⚙️ Admin</button>
@@ -292,6 +367,102 @@ export default function Profile() {
               <button className="btn-secondary" onClick={() => handleRevokeSession(s.id)} style={{ marginTop: 8, fontSize: '0.8rem' }}>Revoke</button>
             </div>
           ))}
+        </div>
+      )}
+
+      {activeTab === 'kyc' && (
+        <div className="form-card">
+          <h3 style={{ marginBottom: '16px' }}>Identity Verification (KYC)</h3>
+          <p style={{ marginBottom: '16px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            Verify your identity to unlock all features and enable withdrawals.
+          </p>
+
+          {kycStatus && (
+            <div style={{ marginBottom: '16px', padding: '12px', background: 'var(--bg)', borderRadius: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontWeight: 600 }}>KYC Status</span>
+                <span style={{
+                  padding: '4px 12px',
+                  borderRadius: '20px',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  background: kycStatus.status === 'verified' ? 'rgba(16,185,129,0.1)' : kycStatus.status === 'pending' ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)',
+                  color: kycStatus.status === 'verified' ? 'var(--success)' : kycStatus.status === 'pending' ? 'var(--warning)' : 'var(--error)',
+                }}>
+                  {kycStatus.status === 'verified' ? '✓ Verified' : kycStatus.status === 'pending' ? '⏳ Pending' : '✗ Not Verified'}
+                </span>
+              </div>
+              {kycStatus.type && <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Type: {kycStatus.type.replace('_', ' ').toUpperCase()}</div>}
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                Email: {kycStatus.emailVerified ? '✓ Verified' : '✗ Not Verified'} | Phone: {kycStatus.phoneVerified ? '✓ Verified' : '✗ Not Verified'}
+              </div>
+            </div>
+          )}
+
+          {/* Phone Verification */}
+          {kycStatus && !kycStatus.phoneVerified && (
+            <div style={{ marginBottom: '20px', padding: '16px', background: 'var(--bg)', borderRadius: '10px' }}>
+              <h4 style={{ marginBottom: '12px' }}>Phone Verification</h4>
+              <div className="form-group">
+                <label>Phone Number</label>
+                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="08012345678" maxLength={11} />
+              </div>
+              {!phoneSent ? (
+                <button className="btn-primary" onClick={handleSendPhoneOtp} disabled={loading || !phone}>
+                  {loading ? 'Sending...' : 'Send OTP'}
+                </button>
+              ) : (
+                <div>
+                  <div className="form-group">
+                    <label>Enter OTP</label>
+                    <input type="text" value={phoneOtp} onChange={(e) => setPhoneOtp(e.target.value)} placeholder="6-digit code" maxLength={6} />
+                  </div>
+                  <button className="btn-primary" onClick={handleVerifyPhone} disabled={loading || phoneOtp.length !== 6}>
+                    {loading ? 'Verifying...' : 'Verify Phone'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* KYC Submission */}
+          {kycStatus && kycStatus.status !== 'verified' && kycStatus.status !== 'pending' && (
+            <div style={{ padding: '16px', background: 'var(--bg)', borderRadius: '10px' }}>
+              <h4 style={{ marginBottom: '12px' }}>Submit ID Document</h4>
+              <div className="form-group">
+                <label>ID Type</label>
+                <select value={kycType} onChange={(e) => setKycType(e.target.value)}>
+                  <option value="">Select ID Type</option>
+                  <option value="bvn">BVN (Bank Verification Number)</option>
+                  <option value="nin">NIN (National Identification Number)</option>
+                  <option value="drivers_license">Driver's License</option>
+                  <option value="passport">International Passport</option>
+                  <option value="voter_card">Voter's Card</option>
+                </select>
+              </div>
+              {kycType === 'bvn' && (
+                <div className="form-group">
+                  <label>BVN</label>
+                  <input type="text" value={kycBvn} onChange={(e) => setKycBvn(e.target.value)} placeholder="11-digit BVN" maxLength={11} />
+                </div>
+              )}
+              <button className="btn-primary" onClick={handleSubmitKyc} disabled={loading || !kycType}>
+                {loading ? 'Submitting...' : 'Submit for Verification'}
+              </button>
+            </div>
+          )}
+
+          {kycStatus?.status === 'pending' && (
+            <div style={{ padding: '16px', background: 'rgba(245,158,11,0.1)', borderRadius: '10px', color: 'var(--warning)' }}>
+              Your KYC is under review. This usually takes 24-48 hours. We'll notify you once verified.
+            </div>
+          )}
+
+          {kycStatus?.status === 'verified' && (
+            <div style={{ padding: '16px', background: 'rgba(16,185,129,0.1)', borderRadius: '10px', color: 'var(--success)' }}>
+              Your identity has been verified. You now have full access to all features.
+            </div>
+          )}
         </div>
       )}
 
