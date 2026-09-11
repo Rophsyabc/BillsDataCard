@@ -9,7 +9,8 @@ import authRoutes from './routes/auth.js';
 import paymentRoutes from './routes/payment.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
-import { apiLimiter, paymentLimiter } from './middleware/rateLimit.js';
+import { apiLimiter, paymentLimiter, authLimiter } from './middleware/rateLimit.js';
+import { authMiddleware } from './middleware/auth.js';
 import db from './data/db.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,13 +19,12 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
 
-// CORS — allowed origins including Capacitor mobile origins
 const allowedOrigins = [
-  'https://localhost',      // Android Capacitor
-  'capacitor://localhost',  // iOS Capacitor
-  'http://localhost:5173',  // Vite local
+  'https://localhost',
+  'capacitor://localhost',
+  'http://localhost:5173',
   'http://localhost:4000',
-  'https://billsdatacard.onrender.com', // Own domain
+  'https://billsdatacard.onrender.com',
 ];
 
 if (isProduction && process.env.ALLOWED_ORIGIN) {
@@ -33,45 +33,55 @@ if (isProduction && process.env.ALLOWED_ORIGIN) {
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
 
-    if (allowedOrigins.indexOf(origin) !== -1 || !isProduction) {
-      callback(null, true);
+    if (isProduction) {
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
     } else {
-      callback(new Error('Not allowed by CORS'));
+      callback(null, true);
     }
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true,
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '10kb' }));
 
-// Security headers
 if (isProduction) {
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'");
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    next();
+  });
+} else {
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
     next();
   });
 }
 
-// Serve built frontend
 app.use(express.static(path.join(__dirname, '..', 'dist')));
 
-// ── Rate Limiting ──
-app.use('/auth', apiLimiter);
+app.use('/auth', authLimiter);
 app.use('/api/payment', paymentLimiter);
+app.use('/api', apiLimiter);
 
-// ── Mount Routes ──
 app.use('/auth', authRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
 
-// ── In-memory data store ──
 const networks = [
   { id: 'mtn', name: 'MTN' },
   { id: 'airtel', name: 'Airtel' },
@@ -80,101 +90,101 @@ const networks = [
   { id: 'smile', name: 'Smile' },
 ];
 
-// ── Health ──
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// ── Wallet ──
-app.get('/api/wallet', (req, res) => {
-  const userId = req.query.userId || 'default';
+app.get('/api/wallet', authMiddleware, (req, res) => {
+  const userId = req.user.id;
   let wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(userId);
   if (!wallet) {
-    db.prepare('INSERT INTO wallet (userId, balance) VALUES (?, 50000)').run(userId);
+    db.prepare('INSERT INTO wallet (userId, balance) VALUES (?, 0)').run(userId);
     wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(userId);
   }
   res.json({ success: true, data: wallet });
 });
 
-app.post('/api/wallet/fund', (req, res) => {
-  const { amount, method, userId } = req.body;
-  if (!amount || amount < 100) {
-    return res.status(400).json({ success: false, message: 'Minimum funding is ₦100' });
-  }
-  const uid = userId || 'default';
-  let wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(uid);
-  if (!wallet) {
-    db.prepare('INSERT INTO wallet (userId, balance) VALUES (?, 0)').run(uid);
-    wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(uid);
-  }
-  const newBalance = wallet.balance + amount;
-  db.prepare('UPDATE wallet SET balance = ? WHERE userId = ?').run(newBalance, uid);
-  const txnId = `FUND-${uuidv4().slice(0, 8)}`;
-  db.prepare('INSERT INTO transactions (id, userId, type, amount, method, status) VALUES (?, ?, ?, ?, ?, ?)').run(txnId, uid, 'Wallet Funding', amount, method || 'Bank Transfer', 'success');
-  res.json({ success: true, data: { transaction: { id: txnId, amount, method }, balance: newBalance } });
-});
-
-app.post('/api/wallet/transfer', (req, res) => {
-  const { recipient, amount, note, userId } = req.body;
-  if (!recipient || !amount) {
-    return res.status(400).json({ success: false, message: 'Recipient and amount required' });
-  }
-  const uid = userId || 'default';
-  const wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(uid);
-  if (!wallet || amount > wallet.balance) {
-    return res.status(400).json({ success: false, message: 'Insufficient balance' });
-  }
-  const newBalance = wallet.balance - amount;
-  db.prepare('UPDATE wallet SET balance = ? WHERE userId = ?').run(newBalance, uid);
-  const txnId = `TRF-${uuidv4().slice(0, 8)}`;
-  db.prepare('INSERT INTO transactions (id, userId, type, service, amount, status) VALUES (?, ?, ?, ?, ?, ?)').run(txnId, uid, 'Transfer', `Transfer to ${recipient}`, amount, 'success');
-  res.json({ success: true, data: { transaction: { id: txnId, recipient, amount }, balance: newBalance } });
-});
-
-// ── Airtime ──
-app.get('/api/airtime/networks', (_req, res) => {
+app.get('/api/networks', authMiddleware, (_req, res) => {
   res.json({ success: true, data: networks });
 });
 
-app.post('/api/airtime/buy', (req, res) => {
-  const { network, phone, amount, userId } = req.body;
-  if (!network || !phone || !amount) {
-    return res.status(400).json({ success: false, message: 'All fields required' });
+function deductFromWallet(userId, amount) {
+  const deductTxn = db.transaction(() => {
+    const wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(userId);
+    if (!wallet || wallet.balance < amount) {
+      throw new Error('INSUFFICIENT_BALANCE');
+    }
+    const newBalance = wallet.balance - amount;
+    db.prepare('UPDATE wallet SET balance = ? WHERE userId = ?').run(newBalance, userId);
+    return newBalance;
+  });
+  return deductTxn();
+}
+
+app.post('/api/airtime/buy', authMiddleware, (req, res) => {
+  try {
+    const { network, phone, amount } = req.body;
+    if (!network || !phone || !amount) {
+      return res.status(400).json({ success: false, message: 'All fields required' });
+    }
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid amount' });
+    }
+    const net = networks.find((n) => n.id === network);
+    if (!net) {
+      return res.status(400).json({ success: false, message: 'Invalid network' });
+    }
+
+    const uid = req.user.id;
+    let newBalance;
+    try {
+      newBalance = deductFromWallet(uid, numAmount);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: 'Insufficient balance' });
+    }
+
+    const txnId = `AIR-${uuidv4().slice(0, 8)}`;
+    db.prepare('INSERT INTO transactions (id, userId, type, service, phone, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?)').run(txnId, uid, 'Airtime', net.name, phone, numAmount, 'success');
+    res.json({ success: true, data: { transaction: { id: txnId, network, phone, amount: numAmount, status: 'success' }, balance: newBalance } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed' });
   }
-  const uid = userId || 'default';
-  const wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(uid);
-  if (!wallet || amount > wallet.balance) {
-    return res.status(400).json({ success: false, message: 'Insufficient balance' });
-  }
-  const newBalance = wallet.balance - amount;
-  db.prepare('UPDATE wallet SET balance = ? WHERE userId = ?').run(newBalance, uid);
-  const net = networks.find((n) => n.id === network);
-  const txnId = `AIR-${uuidv4().slice(0, 8)}`;
-  db.prepare('INSERT INTO transactions (id, userId, type, service, phone, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?)').run(txnId, uid, 'Airtime', net?.name || network, phone, amount, 'success');
-  res.json({ success: true, data: { transaction: { id: txnId, network, phone, amount, status: 'success' }, balance: newBalance } });
 });
 
-// ── Data ──
-app.post('/api/data/buy', (req, res) => {
-  const { network, phone, plan, userId } = req.body;
-  if (!network || !phone || !plan) {
-    return res.status(400).json({ success: false, message: 'All fields required' });
+app.post('/api/data/buy', authMiddleware, (req, res) => {
+  try {
+    const { network, phone, planId } = req.body;
+    if (!network || !phone || !planId) {
+      return res.status(400).json({ success: false, message: 'All fields required' });
+    }
+    const net = networks.find((n) => n.id === network);
+    if (!net) {
+      return res.status(400).json({ success: false, message: 'Invalid network' });
+    }
+
+    const plan = db.prepare('SELECT * FROM data_plans WHERE id = ? AND active = 1').get(planId);
+    if (!plan) {
+      return res.status(400).json({ success: false, message: 'Invalid plan' });
+    }
+
+    const uid = req.user.id;
+    let newBalance;
+    try {
+      newBalance = deductFromWallet(uid, plan.price);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: 'Insufficient balance' });
+    }
+
+    const txnId = `DAT-${uuidv4().slice(0, 8)}`;
+    db.prepare('INSERT INTO transactions (id, userId, type, service, phone, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?)').run(txnId, uid, 'Data', `${net.name} - ${plan.name}`, phone, plan.price, 'success');
+    res.json({ success: true, data: { transaction: { id: txnId, network, phone, plan: plan.name, amount: plan.price, status: 'success' }, balance: newBalance } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed' });
   }
-  const uid = userId || 'default';
-  const wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(uid);
-  if (!wallet || plan.price > wallet.balance) {
-    return res.status(400).json({ success: false, message: 'Insufficient balance' });
-  }
-  const newBalance = wallet.balance - plan.price;
-  db.prepare('UPDATE wallet SET balance = ? WHERE userId = ?').run(newBalance, uid);
-  const net = networks.find((n) => n.id === network);
-  const txnId = `DAT-${uuidv4().slice(0, 8)}`;
-  db.prepare('INSERT INTO transactions (id, userId, type, service, phone, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?)').run(txnId, uid, 'Data', `${net?.name} - ${plan.size || plan.name}`, phone, plan.price, 'success');
-  res.json({ success: true, data: { transaction: { id: txnId, network, phone, plan: plan.name, amount: plan.price, status: 'success' }, balance: newBalance } });
 });
 
-// ── Electricity ──
-app.post('/api/electricity/validate', (req, res) => {
+app.post('/api/electricity/validate', authMiddleware, (req, res) => {
   const { disco, meterNumber, meterType } = req.body;
   if (!disco || !meterNumber) {
     return res.status(400).json({ success: false, message: 'Disco and meter required' });
@@ -185,95 +195,115 @@ app.post('/api/electricity/validate', (req, res) => {
   });
 });
 
-app.post('/api/electricity/buy', (req, res) => {
-  const { disco, meterNumber, meterType, amount, userId } = req.body;
-  if (!disco || !meterNumber || !amount) {
-    return res.status(400).json({ success: false, message: 'All fields required' });
+app.post('/api/electricity/buy', authMiddleware, (req, res) => {
+  try {
+    const { disco, meterNumber, meterType, amount } = req.body;
+    if (!disco || !meterNumber || !amount) {
+      return res.status(400).json({ success: false, message: 'All fields required' });
+    }
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid amount' });
+    }
+
+    const uid = req.user.id;
+    let newBalance;
+    try {
+      newBalance = deductFromWallet(uid, numAmount);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: 'Insufficient balance' });
+    }
+
+    const txnId = `ELEC-${uuidv4().slice(0, 8)}`;
+    db.prepare('INSERT INTO transactions (id, userId, type, service, meter, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?)').run(txnId, uid, 'Electricity', disco, meterNumber, numAmount, 'success');
+    res.json({ success: true, data: { transaction: { id: txnId, disco, meterNumber, amount: numAmount, status: 'success' }, balance: newBalance } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed' });
   }
-  const uid = userId || 'default';
-  const wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(uid);
-  if (!wallet || amount > wallet.balance) {
-    return res.status(400).json({ success: false, message: 'Insufficient balance' });
-  }
-  const newBalance = wallet.balance - amount;
-  db.prepare('UPDATE wallet SET balance = ? WHERE userId = ?').run(newBalance, uid);
-  const token = Math.floor(10000000000000000000 + Math.random() * 90000000000000000000).toString();
-  const txnId = `ELEC-${uuidv4().slice(0, 8)}`;
-  db.prepare('INSERT INTO transactions (id, userId, type, service, meter, token, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(txnId, uid, 'Electricity', disco, meterNumber, token, amount, 'success');
-  res.json({ success: true, data: { transaction: { id: txnId, disco, meterNumber, amount, token, status: 'success' }, token, balance: newBalance } });
 });
 
-// ── TV ──
-app.post('/api/tv/subscribe', (req, res) => {
-  const { provider, iuc, packageId, packageName, amount, userId } = req.body;
-  if (!provider || !iuc || !packageId) {
-    return res.status(400).json({ success: false, message: 'All fields required' });
+app.post('/api/tv/subscribe', authMiddleware, (req, res) => {
+  try {
+    const { provider, iuc, packageId, packageName, amount } = req.body;
+    if (!provider || !iuc || !packageId) {
+      return res.status(400).json({ success: false, message: 'All fields required' });
+    }
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid amount' });
+    }
+
+    const uid = req.user.id;
+    let newBalance;
+    try {
+      newBalance = deductFromWallet(uid, numAmount);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: 'Insufficient balance' });
+    }
+
+    const txnId = `TV-${uuidv4().slice(0, 8)}`;
+    db.prepare('INSERT INTO transactions (id, userId, type, service, iuc, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?)').run(txnId, uid, 'TV Subscription', `${provider} - ${packageName || packageId}`, iuc, numAmount, 'success');
+    res.json({ success: true, data: { transaction: { id: txnId, provider, iuc, packageName, amount: numAmount, status: 'success' }, balance: newBalance } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed' });
   }
-  const uid = userId || 'default';
-  const wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(uid);
-  if (!wallet || amount > wallet.balance) {
-    return res.status(400).json({ success: false, message: 'Insufficient balance' });
-  }
-  const newBalance = wallet.balance - amount;
-  db.prepare('UPDATE wallet SET balance = ? WHERE userId = ?').run(newBalance, uid);
-  const txnId = `TV-${uuidv4().slice(0, 8)}`;
-  db.prepare('INSERT INTO transactions (id, userId, type, service, iuc, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?)').run(txnId, uid, 'TV Subscription', `${provider} - ${packageName}`, iuc, amount, 'success');
-  res.json({ success: true, data: { transaction: { id: txnId, provider, iuc, packageName, amount, status: 'success' }, balance: newBalance } });
 });
 
-// ── Gift Card ──
-app.post('/api/giftcard/buy', (req, res) => {
-  const { cardName, amount, email, totalCost, userId } = req.body;
-  if (!cardName || !amount || !email) {
-    return res.status(400).json({ success: false, message: 'All fields required' });
+app.post('/api/giftcard/buy', authMiddleware, (req, res) => {
+  try {
+    const { cardName, amount, email, totalCost } = req.body;
+    if (!cardName || !amount || !email) {
+      return res.status(400).json({ success: false, message: 'All fields required' });
+    }
+    const numCost = parseFloat(totalCost);
+    const numAmount = parseFloat(amount);
+    if (isNaN(numCost) || numCost <= 0 || isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid amount' });
+    }
+
+    const uid = req.user.id;
+    let newBalance;
+    try {
+      newBalance = deductFromWallet(uid, numCost);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: 'Insufficient balance' });
+    }
+
+    const txnId = `GC-${uuidv4().slice(0, 8)}`;
+    db.prepare('INSERT INTO transactions (id, userId, type, service, amount, status) VALUES (?, ?, ?, ?, ?, ?)').run(txnId, uid, 'Gift Card', cardName, numCost, 'success');
+    res.json({ success: true, data: { transaction: { id: txnId, cardName, amount: numAmount, email, totalCost: numCost, status: 'success' }, balance: newBalance } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed' });
   }
-  const uid = userId || 'default';
-  const wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(uid);
-  if (!wallet || totalCost > wallet.balance) {
-    return res.status(400).json({ success: false, message: 'Insufficient balance' });
-  }
-  const newBalance = wallet.balance - totalCost;
-  db.prepare('UPDATE wallet SET balance = ? WHERE userId = ?').run(newBalance, uid);
-  const txnId = `GC-${uuidv4().slice(0, 8)}`;
-  db.prepare('INSERT INTO transactions (id, userId, type, service, amount, status) VALUES (?, ?, ?, ?, ?, ?)').run(txnId, uid, 'Gift Card', cardName, totalCost, 'success');
-  res.json({ success: true, data: { transaction: { id: txnId, cardName, amount, email, totalCost, status: 'success' }, balance: newBalance } });
 });
 
-// ── Betting ──
-app.post('/api/betting/fund', (req, res) => {
-  const { platform, userId: betUserId, amount, userId } = req.body;
-  if (!platform || !betUserId || !amount) {
-    return res.status(400).json({ success: false, message: 'All fields required' });
+app.post('/api/betting/fund', authMiddleware, (req, res) => {
+  try {
+    const { platform, userId: betUserId, amount } = req.body;
+    if (!platform || !betUserId || !amount) {
+      return res.status(400).json({ success: false, message: 'All fields required' });
+    }
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid amount' });
+    }
+
+    const uid = req.user.id;
+    let newBalance;
+    try {
+      newBalance = deductFromWallet(uid, numAmount);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: 'Insufficient balance' });
+    }
+
+    const txnId = `BET-${uuidv4().slice(0, 8)}`;
+    db.prepare('INSERT INTO transactions (id, userId, type, service, amount, status) VALUES (?, ?, ?, ?, ?, ?)').run(txnId, uid, 'Betting', platform, numAmount, 'success');
+    res.json({ success: true, data: { transaction: { id: txnId, platform, betUserId, amount: numAmount, status: 'success' }, balance: newBalance } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed' });
   }
-  const uid = userId || 'default';
-  const wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(uid);
-  if (!wallet || amount > wallet.balance) {
-    return res.status(400).json({ success: false, message: 'Insufficient balance' });
-  }
-  const newBalance = wallet.balance - amount;
-  db.prepare('UPDATE wallet SET balance = ? WHERE userId = ?').run(newBalance, uid);
-  const txnId = `BET-${uuidv4().slice(0, 8)}`;
-  db.prepare('INSERT INTO transactions (id, userId, type, service, amount, status) VALUES (?, ?, ?, ?, ?, ?)').run(txnId, uid, 'Betting', platform, amount, 'success');
-  res.json({ success: true, data: { transaction: { id: txnId, platform, betUserId, amount, status: 'success' }, balance: newBalance } });
 });
 
-// ── Transactions ──
-app.get('/api/transactions', (_req, res) => {
-  const txns = db.prepare('SELECT * FROM transactions ORDER BY createdAt DESC LIMIT 50').all();
-  res.json({ success: true, data: txns });
-});
-
-app.get('/api/transactions/:ref', (req, res) => {
-  const txn = db.prepare('SELECT * FROM transactions WHERE id = ?').get(req.params.ref);
-  if (!txn) return res.status(404).json({ success: false, message: 'Not found' });
-  res.json({ success: true, data: txn });
-});
-
-// ══════════════════════════════════════════════
-// ── Reloadly API Proxy Routes ──
-// ══════════════════════════════════════════════
-
-// Reloadly config status
 app.get('/api/reloadly/status', (_req, res) => {
   res.json({
     configured: reloadly.isConfigured(),
@@ -281,7 +311,6 @@ app.get('/api/reloadly/status', (_req, res) => {
   });
 });
 
-// Countries
 app.get('/api/reloadly/countries', async (_req, res) => {
   try {
     if (!reloadly.isConfigured()) {
@@ -305,7 +334,6 @@ app.get('/api/reloadly/countries/:iso', async (req, res) => {
   }
 });
 
-// Operators
 app.get('/api/reloadly/operators', async (req, res) => {
   try {
     if (!reloadly.isConfigured()) {
@@ -352,7 +380,6 @@ app.get('/api/reloadly/operators/detect/:phone/:countryCode', async (req, res) =
   }
 });
 
-// Balance
 app.get('/api/reloadly/balance', async (_req, res) => {
   try {
     if (!reloadly.isConfigured()) {
@@ -366,8 +393,7 @@ app.get('/api/reloadly/balance', async (_req, res) => {
   }
 });
 
-// Top-ups (synchronous)
-app.post('/api/reloadly/topup', async (req, res) => {
+app.post('/api/reloadly/topup', authMiddleware, async (req, res) => {
   try {
     if (!reloadly.isConfigured()) {
       return res.status(503).json({ success: false, message: 'Reloadly not configured' });
@@ -378,44 +404,44 @@ app.post('/api/reloadly/topup', async (req, res) => {
       return res.status(400).json({ success: false, message: 'operatorId, amount, phone, countryCode required' });
     }
 
-    if (amount > wallet.balance) {
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid amount' });
+    }
+
+    const userId = req.user.id;
+
+    let newBalance;
+    try {
+      newBalance = deductFromWallet(userId, numAmount);
+    } catch (e) {
       return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
     }
 
-    // Generate custom identifier if not provided
     const ref = customIdentifier || `RLY-${uuidv4().slice(0, 8)}`;
 
     const result = await reloadly.makeTopup({
       operatorId,
-      amount,
+      amount: numAmount,
       phone,
       countryCode,
       customIdentifier: ref,
       useLocalAmount: useLocalAmount || false,
     });
 
-    // Deduct from local wallet
-    wallet.balance -= amount;
+    const status = result.status === 'SUCCESSFUL' ? 'success' : result.status === 'PENDING' ? 'pending' : 'failed';
+    db.prepare('INSERT INTO transactions (id, userId, type, service, phone, amount, status, method) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(ref, userId, 'Airtime', result.operatorName || `Operator ${operatorId}`, phone, numAmount, status, 'reloadly');
 
-    // Store transaction locally
-    const txn = addTxn({
-      id: ref,
-      type: 'Airtime',
-      service: result.operatorName || `Operator ${operatorId}`,
-      phone,
-      amount,
-      reloadlyTransactionId: result.transactionId,
-      reloadlyStatus: result.status,
-      deliveredAmount: result.deliveredAmount,
-      deliveredCurrency: result.deliveredAmountCurrencyCode,
-      discount: result.discount,
-      fee: result.fee,
-      status: result.status === 'SUCCESSFUL' ? 'success' : result.status === 'PENDING' ? 'pending' : 'failed',
-      date: result.transactionDate || new Date().toISOString(),
-      balanceAfter: wallet.balance,
-    });
+    if (status === 'failed') {
+      const refundTxn = db.transaction(() => {
+        const wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(userId);
+        const refundBalance = wallet.balance + numAmount;
+        db.prepare('UPDATE wallet SET balance = ? WHERE userId = ?').run(refundBalance, userId);
+      });
+      refundTxn();
+    }
 
-    res.json({ success: true, data: { transaction: txn, reloadly: result, balance: wallet.balance } });
+    res.json({ success: true, data: { transaction: { id: ref, status }, reloadly: result, balance: status === 'failed' ? undefined : newBalance } });
   } catch (err) {
     console.error('[reloadly] topup error:', err.message);
     const status = err.response?.status || 500;
@@ -424,8 +450,7 @@ app.post('/api/reloadly/topup', async (req, res) => {
   }
 });
 
-// Top-ups (asynchronous)
-app.post('/api/reloadly/topup-async', async (req, res) => {
+app.post('/api/reloadly/topup-async', authMiddleware, async (req, res) => {
   try {
     if (!reloadly.isConfigured()) {
       return res.status(503).json({ success: false, message: 'Reloadly not configured' });
@@ -436,7 +461,17 @@ app.post('/api/reloadly/topup-async', async (req, res) => {
       return res.status(400).json({ success: false, message: 'operatorId, amount, phone, countryCode required' });
     }
 
-    if (amount > wallet.balance) {
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid amount' });
+    }
+
+    const userId = req.user.id;
+
+    let newBalance;
+    try {
+      newBalance = deductFromWallet(userId, numAmount);
+    } catch (e) {
       return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
     }
 
@@ -444,31 +479,16 @@ app.post('/api/reloadly/topup-async', async (req, res) => {
 
     const result = await reloadly.makeAsyncTopup({
       operatorId,
-      amount,
+      amount: numAmount,
       phone,
       countryCode,
       customIdentifier: ref,
       useLocalAmount: useLocalAmount || false,
     });
 
-    // Deduct from local wallet
-    wallet.balance -= amount;
+    db.prepare('INSERT INTO transactions (id, userId, type, service, phone, amount, status, method) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(ref, userId, 'Airtime', `Operator ${operatorId}`, phone, numAmount, 'pending', 'reloadly');
 
-    // Store as pending
-    const txn = addTxn({
-      id: ref,
-      type: 'Airtime',
-      service: `Operator ${operatorId}`,
-      phone,
-      amount,
-      reloadlyTransactionId: result.transactionId,
-      reloadlyStatus: 'PENDING',
-      status: 'pending',
-      date: new Date().toISOString(),
-      balanceAfter: wallet.balance,
-    });
-
-    res.json({ success: true, data: { transaction: txn, reloadly: result, balance: wallet.balance } });
+    res.json({ success: true, data: { transaction: { id: ref, status: 'pending' }, reloadly: result, balance: newBalance } });
   } catch (err) {
     console.error('[reloadly] topup-async error:', err.message);
     const status = err.response?.status || 500;
@@ -477,7 +497,6 @@ app.post('/api/reloadly/topup-async', async (req, res) => {
   }
 });
 
-// Top-up status
 app.get('/api/reloadly/topup/status/:transactionId', async (req, res) => {
   try {
     const data = await reloadly.getTopupStatus(req.params.transactionId);
@@ -488,8 +507,7 @@ app.get('/api/reloadly/topup/status/:transactionId', async (req, res) => {
   }
 });
 
-// Reloadly transactions
-app.get('/api/reloadly/transactions', async (req, res) => {
+app.get('/api/reloadly/transactions', authMiddleware, async (req, res) => {
   try {
     const data = await reloadly.getTransactions(req.query);
     res.json({ success: true, data, source: 'reloadly' });
@@ -499,7 +517,6 @@ app.get('/api/reloadly/transactions', async (req, res) => {
   }
 });
 
-// FX Rates
 app.get('/api/reloadly/fx-rate', async (req, res) => {
   try {
     const { operatorId, amount } = req.query;
@@ -514,7 +531,6 @@ app.get('/api/reloadly/fx-rate', async (req, res) => {
   }
 });
 
-// Commissions
 app.get('/api/reloadly/commissions', async (_req, res) => {
   try {
     const data = await reloadly.getCommissions();
@@ -533,6 +549,6 @@ app.get('/{*splat}', (req, res, next) => {
 });
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[server] running on http://0.0.0.0:${PORT}`);
+app.listen(PORT, isProduction ? '0.0.0.0' : '127.0.0.1', () => {
+  console.log(`[server] running on port ${PORT} (${isProduction ? 'production' : 'development'})`);
 });

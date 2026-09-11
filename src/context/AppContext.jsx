@@ -16,9 +16,9 @@ export function AppProvider({ children }) {
   const [balance, setBalance] = useState(() => {
     try {
       const user = JSON.parse(localStorage.getItem('paybills_user'));
-      return user ? 0 : 50000;
+      return 0;
     } catch {
-      return 50000;
+      return 0;
     }
   });
   const [user, setUser] = useState(() => {
@@ -37,7 +37,7 @@ export function AppProvider({ children }) {
   const logout = useCallback(() => {
     setUser(null);
     setToken('');
-    setBalance(50000);
+    setBalance(0);
     localStorage.removeItem('paybills_user');
     localStorage.removeItem('paybills_token');
   }, []);
@@ -53,7 +53,12 @@ export function AppProvider({ children }) {
   const refreshBalance = useCallback(async () => {
     const uid = getUserId();
     try {
-      const res = await fetch(`${API_BASE}/api/wallet?userId=${uid}`);
+      const authToken = localStorage.getItem('paybills_token');
+      const res = await fetch(`${API_BASE}/api/wallet?userId=${uid}`, {
+        headers: {
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+      });
       const data = await res.json();
       if (data.success && data.data?.balance !== undefined) {
         setBalance(data.data.balance);

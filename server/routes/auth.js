@@ -1,28 +1,44 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import db from '../data/db.js';
-import { generateToken, generateRefreshToken, verifyToken, authMiddleware } from '../middleware/auth.js';
+import { generateToken, generateRefreshToken, verifyToken, verifyRefreshToken, revokeToken, authMiddleware } from '../middleware/auth.js';
+import { authLimiter, signupLimiter, passwordResetLimiter, twoFactorLimiter } from '../middleware/rateLimit.js';
 
 const router = Router();
 
 function generateReferralCode() {
-  return 'PB' + Math.random().toString(36).substring(2, 8).toUpperCase();
+  return 'PB' + crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
 function generateVerificationToken() {
-  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  return crypto.randomBytes(32).toString('hex');
 }
 
-// ── Signup ──
-router.post('/signup', async (req, res) => {
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_SESSIONS = 5;
+
+router.post('/signup', signupLimiter, async (req, res) => {
   try {
     const { name, email, password, phone, referralCode } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ success: false, message: 'Name, email, and password are required' });
+    }
+
+    if (!EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ success: false, message: 'Invalid email format' });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters' });
+    }
+
+    if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
+      return res.status(400).json({ success: false, message: 'Password must contain uppercase, lowercase, and numbers' });
     }
 
     const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
@@ -41,19 +57,14 @@ router.post('/signup', async (req, res) => {
       if (referrer) referredBy = referrer.id;
     }
 
-    db.prepare(`INSERT INTO users (id, name, email, phone, password, referralCode, referredBy) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(userId, name, email, phone || '', hashedPassword, userReferralCode, referredBy);
-    db.prepare(`INSERT INTO wallet (userId, balance) VALUES (?, 0)`).run(userId);
-
-    // Make first user admin
-    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
-    if (userCount === 1) {
-      db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(userId);
-    }
+    const insertUser = db.transaction(() => {
+      db.prepare(`INSERT INTO users (id, name, email, phone, password, referralCode, referredBy) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(userId, name, email, phone || '', hashedPassword, userReferralCode, referredBy);
+      db.prepare(`INSERT INTO wallet (userId, balance) VALUES (?, 0)`).run(userId);
+    });
+    insertUser();
 
     const tokenExp = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     db.prepare(`INSERT INTO verification_tokens (token, userId, expiresAt) VALUES (?, ?, ?)`).run(verificationToken, userId, tokenExp);
-
-    console.log(`[auth] Verification token for ${email}: ${verificationToken}`);
 
     const token = generateToken({ id: userId, email, name });
     const refreshToken = generateRefreshToken({ id: userId, email });
@@ -68,7 +79,6 @@ router.post('/signup', async (req, res) => {
         user: { id: userId, name, email, phone: phone || '', emailVerified: false, referralCode: userReferralCode, role: 'user', status: 'active' },
         token,
         refreshToken,
-        verificationToken,
       },
     });
   } catch (err) {
@@ -77,8 +87,7 @@ router.post('/signup', async (req, res) => {
   }
 });
 
-// ── Login ──
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -89,6 +98,10 @@ router.post('/login', async (req, res) => {
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
+
+    if (user.status === 'banned') {
+      return res.status(403).json({ success: false, message: 'Account is suspended' });
     }
 
     const validPassword = await bcrypt.compare(password, user.password);
@@ -107,6 +120,11 @@ router.post('/login', async (req, res) => {
     const sessionId = `SES-${uuidv4().slice(0, 8)}`;
     db.prepare(`INSERT INTO sessions (id, userId, token, device, ip) VALUES (?, ?, ?, ?, ?)`).run(sessionId, user.id, refreshToken, req.headers['user-agent'] || '', req.ip);
 
+    const sessionCount = db.prepare('SELECT COUNT(*) as count FROM sessions WHERE userId = ?').get(user.id).count;
+    if (sessionCount > MAX_SESSIONS) {
+      db.prepare('DELETE FROM sessions WHERE userId = ? AND id NOT IN (SELECT id FROM sessions WHERE userId = ? ORDER BY lastActive DESC LIMIT ?)').run(user.id, user.id, MAX_SESSIONS);
+    }
+
     res.json({
       success: true,
       data: {
@@ -121,8 +139,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ── Verify 2FA ──
-router.post('/verify-2fa', async (req, res) => {
+router.post('/verify-2fa', twoFactorLimiter, async (req, res) => {
   try {
     const { tempToken, code } = req.body;
     if (!tempToken || !code) {
@@ -140,7 +157,7 @@ router.post('/verify-2fa', async (req, res) => {
     const verified = speakeasy.totp.verify({
       secret: user.twoFactorSecret,
       encoding: 'base32',
-      token,
+      token: code,
       window: 1,
     });
 
@@ -168,7 +185,6 @@ router.post('/verify-2fa', async (req, res) => {
   }
 });
 
-// ── Setup 2FA ──
 router.post('/setup-2fa', authMiddleware, async (req, res) => {
   try {
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
@@ -188,12 +204,19 @@ router.post('/setup-2fa', authMiddleware, async (req, res) => {
   }
 });
 
-// ── Enable 2FA ──
-router.post('/enable-2fa', authMiddleware, async (req, res) => {
+router.post('/enable-2fa', authMiddleware, twoFactorLimiter, async (req, res) => {
   try {
     const { code } = req.body;
+    if (!code) {
+      return res.status(400).json({ success: false, message: 'TOTP code required' });
+    }
+
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    if (!user.twoFactorSecret) {
+      return res.status(400).json({ success: false, message: 'Run setup-2fa first' });
+    }
 
     const verified = speakeasy.totp.verify({
       secret: user.twoFactorSecret,
@@ -213,10 +236,13 @@ router.post('/enable-2fa', authMiddleware, async (req, res) => {
   }
 });
 
-// ── Disable 2FA ──
-router.post('/disable-2fa', authMiddleware, async (req, res) => {
+router.post('/disable-2fa', authMiddleware, twoFactorLimiter, async (req, res) => {
   try {
     const { password } = req.body;
+    if (!password) {
+      return res.status(400).json({ success: false, message: 'Password required to disable 2FA' });
+    }
+
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
@@ -230,7 +256,6 @@ router.post('/disable-2fa', authMiddleware, async (req, res) => {
   }
 });
 
-// ── Verify Email ──
 router.post('/verify-email', (req, res) => {
   try {
     const { token } = req.body;
@@ -252,10 +277,9 @@ router.post('/verify-email', (req, res) => {
   }
 });
 
-// ── Google OAuth ──
 router.post('/google', async (req, res) => {
   try {
-    const { email, name, googleId, photo } = req.body;
+    const { idToken, email, name, googleId, photo } = req.body;
     if (!email || !googleId) return res.status(400).json({ success: false, message: 'Google data required' });
 
     let user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
@@ -264,7 +288,7 @@ router.post('/google', async (req, res) => {
       const userId = `USR-${uuidv4().slice(0, 8)}`;
       const referralCode = generateReferralCode();
       db.prepare(`INSERT INTO users (id, name, email, phone, password, photo, emailVerified, referralCode) VALUES (?, ?, ?, '', '', ?, 1, ?)`).run(userId, name || email.split('@')[0], email, photo || '', referralCode);
-    db.prepare(`INSERT INTO wallet (userId, balance) VALUES (?, 50000)`).run(userId);
+      db.prepare(`INSERT INTO wallet (userId, balance) VALUES (?, 0)`).run(userId);
       user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
     }
 
@@ -287,15 +311,20 @@ router.post('/google', async (req, res) => {
   }
 });
 
-// ── Refresh Token ──
-router.post('/refresh', (req, res) => {
+router.post('/refresh', async (req, res) => {
   try {
     const { refreshToken } = req.body;
     if (!refreshToken) return res.status(400).json({ success: false, message: 'Refresh token required' });
 
-    const decoded = verifyToken(refreshToken);
+    const decoded = verifyRefreshToken(refreshToken);
+    if (decoded.type !== 'refresh') {
+      return res.status(401).json({ success: false, message: 'Invalid token type' });
+    }
+
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
     if (!user) return res.status(401).json({ success: false, message: 'User not found' });
+
+    revokeToken(decoded.jti);
 
     const newToken = generateToken({ id: user.id, email: user.email, name: user.name });
     const newRefreshToken = generateRefreshToken({ id: user.id, email: user.email });
@@ -306,7 +335,6 @@ router.post('/refresh', (req, res) => {
   }
 });
 
-// ── Get Profile ──
 router.get('/profile', authMiddleware, (req, res) => {
   try {
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
@@ -322,10 +350,12 @@ router.get('/profile', authMiddleware, (req, res) => {
   }
 });
 
-// ── Update Profile ──
 router.put('/profile', authMiddleware, async (req, res) => {
   try {
     const { name, phone } = req.body;
+    if (name && (name.length < 2 || name.length > 100)) {
+      return res.status(400).json({ success: false, message: 'Name must be 2-100 characters' });
+    }
     db.prepare('UPDATE users SET name = COALESCE(?, name), phone = COALESCE(?, phone) WHERE id = ?').run(name, phone, req.user.id);
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
     res.json({ success: true, data: { id: user.id, name: user.name, email: user.email, phone: user.phone } });
@@ -334,27 +364,44 @@ router.put('/profile', authMiddleware, async (req, res) => {
   }
 });
 
-// ── Change Password ──
 router.put('/password', authMiddleware, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Current and new password required' });
+    }
+
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
 
     const valid = await bcrypt.compare(currentPassword, user.password);
     if (!valid) return res.status(401).json({ success: false, message: 'Current password is incorrect' });
 
+    if (newPassword.length < 8) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 8 characters' });
+    }
+
+    if (!/[a-z]/.test(newPassword) || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      return res.status(400).json({ success: false, message: 'New password must contain uppercase, lowercase, and numbers' });
+    }
+
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ success: false, message: 'New password must be different from current password' });
+    }
+
     const hashed = await bcrypt.hash(newPassword, 12);
     db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashed, req.user.id);
+
+    db.prepare('DELETE FROM sessions WHERE userId = ? AND token != ?').run(req.user.id, '');
+
     res.json({ success: true, message: 'Password updated' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to change password' });
   }
 });
 
-// ── Sessions ──
 router.get('/sessions', authMiddleware, (req, res) => {
   try {
-    const sessions = db.prepare('SELECT * FROM sessions WHERE userId = ? ORDER BY lastActive DESC').all(req.user.id);
+    const sessions = db.prepare('SELECT id, userId, device, ip, lastActive, createdAt FROM sessions WHERE userId = ? ORDER BY lastActive DESC').all(req.user.id);
     res.json({ success: true, data: sessions });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to get sessions' });
@@ -376,6 +423,76 @@ router.delete('/sessions', authMiddleware, (req, res) => {
     res.json({ success: true, message: 'All sessions revoked' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to revoke sessions' });
+  }
+});
+
+router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
+
+    const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+
+    if (!user) {
+      return res.json({ success: true, message: 'If an account exists with this email, a reset link has been sent.' });
+    }
+
+    db.prepare('DELETE FROM password_reset_tokens WHERE userId = ?').run(user.id);
+
+    const resetToken = generateVerificationToken();
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    db.prepare('INSERT INTO password_reset_tokens (token, userId, expiresAt) VALUES (?, ?, ?)').run(resetToken, user.id, expiresAt);
+
+    console.log(`[auth] Password reset requested for user ${user.id}`);
+
+    res.json({
+      success: true,
+      message: 'If an account exists with this email, a reset link has been sent.',
+    });
+  } catch (err) {
+    console.error('[auth] Forgot password error:', err.message);
+    res.status(500).json({ success: false, message: 'Failed to process request' });
+  }
+});
+
+router.post('/reset-password', passwordResetLimiter, async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Token and new password are required' });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters' });
+    }
+
+    if (!/[a-z]/.test(newPassword) || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      return res.status(400).json({ success: false, message: 'Password must contain uppercase, lowercase, and numbers' });
+    }
+
+    const record = db.prepare('SELECT * FROM password_reset_tokens WHERE token = ? AND used = 0').get(token);
+    if (!record) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired reset token' });
+    }
+
+    if (new Date(record.expiresAt) < new Date()) {
+      return res.status(400).json({ success: false, message: 'Reset token has expired' });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 12);
+
+    const resetPassword = db.transaction(() => {
+      db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashed, record.userId);
+      db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE token = ?').run(token);
+      db.prepare('DELETE FROM sessions WHERE userId = ?').run(record.userId);
+    });
+    resetPassword();
+
+    res.json({ success: true, message: 'Password reset successful. Please log in.' });
+  } catch (err) {
+    console.error('[auth] Reset password error:', err.message);
+    res.status(500).json({ success: false, message: 'Failed to reset password' });
   }
 });
 

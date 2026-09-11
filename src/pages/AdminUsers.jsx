@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import AdminLayout from '../components/AdminLayout';
+import { useApp } from '../context/AppContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -11,35 +12,47 @@ export default function AdminUsers() {
   const [loading, setLoading] = useState(true);
   const [editingUser, setEditingUser] = useState(null);
   const [editForm, setEditForm] = useState({});
-  const token = localStorage.getItem('paybills_token');
+  const { token } = useApp();
 
   const fetchUsers = async () => {
     setLoading(true);
     const params = new URLSearchParams();
     if (search) params.set('search', search);
     if (statusFilter) params.set('status', statusFilter);
-    const res = await fetch(`${API_BASE}/api/admin/users?${params}`, { headers: { Authorization: `Bearer ${token}` } });
-    const data = await res.json();
-    if (data.success) { setUsers(data.data.users); setTotal(data.data.total); }
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/users?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.success) { setUsers(data.data.users); setTotal(data.data.total); }
+    } catch (e) {
+      console.error('Failed to fetch users:', e);
+    }
     setLoading(false);
   };
 
-  useEffect(() => { fetchUsers(); }, [search, statusFilter]);
+  useEffect(() => { fetchUsers(); }, [search, statusFilter, token]);
 
   const updateUser = async (id, updates) => {
-    await fetch(`${API_BASE}/api/admin/users/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(updates),
-    });
-    setEditingUser(null);
-    fetchUsers();
+    try {
+      await fetch(`${API_BASE}/api/admin/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(updates),
+      });
+      setEditingUser(null);
+      fetchUsers();
+    } catch (e) {
+      console.error('Failed to update user:', e);
+    }
   };
 
   const deleteUser = async (id) => {
     if (!confirm('Delete this user?')) return;
-    await fetch(`${API_BASE}/api/admin/users/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-    fetchUsers();
+    try {
+      await fetch(`${API_BASE}/api/admin/users/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      fetchUsers();
+    } catch (e) {
+      console.error('Failed to delete user:', e);
+    }
   };
 
   return (

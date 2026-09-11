@@ -102,26 +102,7 @@ export default function Signup() {
     setError('');
 
     try {
-      const mockGoogleUser = {
-        email: 'demo@google.com',
-        name: 'Google User',
-        googleId: 'google-' + Date.now(),
-        photo: '',
-      };
-
-      const res = await fetch(`${API_BASE}/auth/google`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(mockGoogleUser),
-      });
-      const data = await res.json();
-
-      if (data.success) {
-        login(data.data.user, data.data.token);
-        navigate('/');
-      } else {
-        setError(data.message || 'Google signup failed');
-      }
+      setError('Google signup coming soon');
     } catch {
       setError('Google authentication failed');
     } finally {

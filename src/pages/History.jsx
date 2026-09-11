@@ -28,12 +28,14 @@ export default function History() {
       if (dateFrom) params.set('from', dateFrom);
       if (dateTo) params.set('to', dateTo);
 
-      const res = await fetch(`${API_BASE}/api/user?${params}`, {
+      const res = await fetch(`${API_BASE}/api/user/history?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (data.success) setTransactions(data.data.transactions);
-    } catch {}
+    } catch (e) {
+      console.error('Failed to fetch transactions:', e);
+    }
     setLoading(false);
   };
 

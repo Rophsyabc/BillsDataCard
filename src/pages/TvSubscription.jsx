@@ -14,7 +14,7 @@ export default function TvSubscription() {
   const [result, setResult] = useState(null);
 
   useEffect(() => {
-    api.getTvProviders().then((res) => setProviders(res.data));
+    api.getTvProviders().then((res) => setProviders(res.data)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -24,7 +24,7 @@ export default function TvSubscription() {
       api.getTvPackages(selectedProvider).then((res) => {
         setPackages(res.data);
         setPkgLoading(false);
-      });
+      }).catch(() => setPkgLoading(false));
     } else {
       setPackages([]);
     }
@@ -34,6 +34,14 @@ export default function TvSubscription() {
     e.preventDefault();
     setLoading(true);
     setResult(null);
+
+    const selectedPkg = packages.find((p) => p.id === selectedPackage);
+    if (selectedPkg && selectedPkg.price > balance) {
+      setResult({ success: false, message: 'Insufficient wallet balance. Please fund your wallet.' });
+      setLoading(false);
+      return;
+    }
+
     const res = await api.buyTvSubscription({
       provider: selectedProvider,
       iuc,

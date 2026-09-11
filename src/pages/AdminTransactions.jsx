@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import AdminLayout from '../components/AdminLayout';
+import { useApp } from '../context/AppContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -10,7 +11,7 @@ export default function AdminTransactions() {
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
-  const token = localStorage.getItem('paybills_token');
+  const { token } = useApp();
 
   const fetchTxns = async () => {
     setLoading(true);
@@ -18,13 +19,17 @@ export default function AdminTransactions() {
     if (search) params.set('search', search);
     if (typeFilter) params.set('type', typeFilter);
     if (statusFilter) params.set('status', statusFilter);
-    const res = await fetch(`${API_BASE}/api/admin/transactions?${params}`, { headers: { Authorization: `Bearer ${token}` } });
-    const data = await res.json();
-    if (data.success) { setTxns(data.data.transactions); setTotal(data.data.total); }
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/transactions?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.success) { setTxns(data.data.transactions); setTotal(data.data.total); }
+    } catch (e) {
+      console.error('Failed to fetch transactions:', e);
+    }
     setLoading(false);
   };
 
-  useEffect(() => { fetchTxns(); }, [search, typeFilter, statusFilter]);
+  useEffect(() => { fetchTxns(); }, [search, typeFilter, statusFilter, token]);
 
   const exportCSV = () => {
     const headers = ['ID', 'User', 'Type', 'Service', 'Amount', 'Status', 'Phone', 'Date'];

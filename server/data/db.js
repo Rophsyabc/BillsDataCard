@@ -18,9 +18,14 @@ db.exec(`
     phone TEXT DEFAULT '',
     password TEXT NOT NULL,
     photo TEXT DEFAULT '',
-    role TEXT DEFAULT 'user',
-    status TEXT DEFAULT 'active',
+    role TEXT DEFAULT 'user' CHECK(role IN ('user', 'admin')),
+    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'banned', 'suspended')),
     emailVerified INTEGER DEFAULT 0,
+    phoneVerified INTEGER DEFAULT 0,
+    kycStatus TEXT DEFAULT 'none',
+    kycType TEXT DEFAULT '',
+    kycDocument TEXT DEFAULT '',
+    bvn TEXT DEFAULT '',
     twoFactorSecret TEXT DEFAULT '',
     twoFactorEnabled INTEGER DEFAULT 0,
     referralCode TEXT UNIQUE NOT NULL,
@@ -51,14 +56,14 @@ db.exec(`
     userId TEXT NOT NULL,
     type TEXT NOT NULL,
     service TEXT DEFAULT '',
-    amount REAL NOT NULL,
+    amount REAL NOT NULL CHECK(amount >= 0),
     phone TEXT DEFAULT '',
     meter TEXT DEFAULT '',
     iuc TEXT DEFAULT '',
     token TEXT DEFAULT '',
-    status TEXT DEFAULT 'success',
+    status TEXT DEFAULT 'success' CHECK(status IN ('success', 'failed', 'pending', 'cancelled', 'refunded')),
     method TEXT DEFAULT '',
-    fee REAL DEFAULT 0,
+    fee REAL DEFAULT 0 CHECK(fee >= 0),
     profit REAL DEFAULT 0,
     metadata TEXT DEFAULT '{}',
     createdAt TEXT DEFAULT (datetime('now')),
@@ -129,16 +134,28 @@ db.exec(`
     createdAt TEXT DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    token TEXT PRIMARY KEY,
+    userId TEXT NOT NULL,
+    expiresAt TEXT NOT NULL,
+    used INTEGER DEFAULT 0,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(userId);
   CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(createdAt);
   CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
   CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+  CREATE INDEX IF NOT EXISTS idx_transactions_user_status ON transactions(userId, status);
   CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(userId);
   CREATE INDEX IF NOT EXISTS idx_reminders_user ON bill_reminders(userId);
   CREATE INDEX IF NOT EXISTS idx_data_plans_network ON data_plans(network);
   CREATE INDEX IF NOT EXISTS idx_gift_cards_active ON gift_cards(active);
   CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
   CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+  CREATE INDEX IF NOT EXISTS idx_verification_tokens_user ON verification_tokens(userId);
+  CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user ON password_reset_tokens(userId);
+  CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
 `);
 
 // Seed default settings
@@ -331,12 +348,6 @@ if (gcCount.count === 0) {
   for (const gc of gcs) {
     insertGC.run(...gc);
   }
-}
-
-// Make default admin (first user gets admin role)
-const adminUser = db.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").get();
-if (!adminUser) {
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = (SELECT id FROM users ORDER BY createdAt ASC LIMIT 1)").run();
 }
 
 export default db;

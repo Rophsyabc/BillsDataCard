@@ -1,49 +1,66 @@
 import { useState, useEffect } from 'react';
 import AdminLayout from '../components/AdminLayout';
+import { useApp } from '../context/AppContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-const token = () => localStorage.getItem('paybills_token');
 
 export default function AdminGiftCards() {
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
+  const { token } = useApp();
 
   const fetchCards = async () => {
     setLoading(true);
-    const res = await fetch(`${API_BASE}/api/admin/giftcards`, { headers: { Authorization: `Bearer ${token()}` } });
-    const data = await res.json();
-    if (data.success) setCards(data.data);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/giftcards`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.success) setCards(data.data);
+    } catch (e) {
+      console.error('Failed to fetch gift cards:', e);
+    }
     setLoading(false);
   };
 
-  useEffect(() => { fetchCards(); }, []);
+  useEffect(() => { fetchCards(); }, [token]);
 
   const saveCard = async (id, updates) => {
-    await fetch(`${API_BASE}/api/admin/giftcards/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-      body: JSON.stringify(updates),
-    });
-    setEditing(null);
-    fetchCards();
+    try {
+      await fetch(`${API_BASE}/api/admin/giftcards/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(updates),
+      });
+      setEditing(null);
+      fetchCards();
+    } catch (e) {
+      console.error('Failed to save gift card:', e);
+    }
   };
 
   const addCard = async () => {
-    await fetch(`${API_BASE}/api/admin/giftcards`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-      body: JSON.stringify(form),
-    });
-    setForm({});
-    fetchCards();
+    try {
+      await fetch(`${API_BASE}/api/admin/giftcards`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form),
+      });
+      setForm({});
+      fetchCards();
+    } catch (e) {
+      console.error('Failed to add gift card:', e);
+    }
   };
 
   const deleteCard = async (id) => {
     if (!confirm('Delete this card?')) return;
-    await fetch(`${API_BASE}/api/admin/giftcards/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
-    fetchCards();
+    try {
+      await fetch(`${API_BASE}/api/admin/giftcards/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      fetchCards();
+    } catch (e) {
+      console.error('Failed to delete gift card:', e);
+    }
   };
 
   return (

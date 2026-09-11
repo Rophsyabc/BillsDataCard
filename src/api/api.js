@@ -33,8 +33,13 @@ const addTransaction = (txn) => {
 // ── Backend API helper ──
 async function callBackend(path, options = {}) {
   try {
+    const token = localStorage.getItem('paybills_token');
     const res = await fetch(`${API_BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
       ...options,
     });
     const data = await res.json();

@@ -14,13 +14,20 @@ export default function Betting() {
   const quickAmounts = [500, 1000, 2000, 3000, 5000, 10000, 20000];
 
   useEffect(() => {
-    api.getBettingPlatforms().then((res) => setPlatforms(res.data));
+    api.getBettingPlatforms().then((res) => setPlatforms(res.data)).catch(() => {});
   }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setResult(null);
+
+    if (parseInt(amount) > balance) {
+      setResult({ success: false, message: 'Insufficient wallet balance. Please fund your wallet.' });
+      setLoading(false);
+      return;
+    }
+
     const res = await api.fundBetting({
       platform: selectedPlatform,
       userId,

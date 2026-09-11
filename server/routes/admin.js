@@ -6,7 +6,19 @@ import { adminMiddleware } from '../middleware/admin.js';
 const router = Router();
 router.use(adminMiddleware);
 
-// ── Dashboard Stats ──
+const VALID_STATUSES = ['success', 'failed', 'pending', 'cancelled', 'refunded'];
+const VALID_ROLES = ['user', 'admin'];
+const VALID_USER_STATUSES = ['active', 'banned', 'suspended'];
+
+function parsePagination(query) {
+  let limit = parseInt(query.limit, 10);
+  let offset = parseInt(query.offset, 10);
+  if (isNaN(limit) || limit < 1) limit = 50;
+  if (isNaN(offset) || offset < 0) offset = 0;
+  if (limit > 200) limit = 200;
+  return { limit, offset };
+}
+
 router.get('/stats', (req, res) => {
   try {
     const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
@@ -47,10 +59,10 @@ router.get('/stats', (req, res) => {
   }
 });
 
-// ── Users ──
 router.get('/users', (req, res) => {
   try {
-    const { search, status, role, limit = 50, offset = 0 } = req.query;
+    const { search, status, role } = req.query;
+    const { limit, offset } = parsePagination(req.query);
     let query = 'SELECT id, name, email, phone, role, status, emailVerified, referralCode, createdAt FROM users WHERE 1=1';
     const params = [];
 
@@ -62,10 +74,10 @@ router.get('/users', (req, res) => {
     const { total } = db.prepare(countQuery).get(...params);
 
     query += ' ORDER BY createdAt DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    params.push(limit, offset);
     const users = db.prepare(query).all(...params);
 
-    res.json({ success: true, data: { users, total } });
+    res.json({ success: true, data: { users, total, limit, offset } });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to get users' });
   }
@@ -90,14 +102,34 @@ router.get('/users/:id', (req, res) => {
 router.put('/users/:id', (req, res) => {
   try {
     const { name, email, phone, role, status } = req.body;
-    const user = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
+    const user = db.prepare('SELECT id, role FROM users WHERE id = ?').get(req.params.id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    if (name) db.prepare('UPDATE users SET name = ? WHERE id = ?').run(name, req.params.id);
-    if (email) db.prepare('UPDATE users SET email = ? WHERE id = ?').run(email, req.params.id);
-    if (phone !== undefined) db.prepare('UPDATE users SET phone = ? WHERE id = ?').run(phone, req.params.id);
-    if (role) db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, req.params.id);
-    if (status) db.prepare('UPDATE users SET status = ? WHERE id = ?').run(status, req.params.id);
+    if (role && !VALID_ROLES.includes(role)) {
+      return res.status(400).json({ success: false, message: 'Invalid role' });
+    }
+    if (status && !VALID_USER_STATUSES.includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid status' });
+    }
+    if (email) {
+      const existingEmail = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(email, req.params.id);
+      if (existingEmail) {
+        return res.status(400).json({ success: false, message: 'Email already in use' });
+      }
+    }
+
+    const updateFields = [];
+    const updateParams = [];
+    if (name) { updateFields.push('name = ?'); updateParams.push(name); }
+    if (email) { updateFields.push('email = ?'); updateParams.push(email); }
+    if (phone !== undefined) { updateFields.push('phone = ?'); updateParams.push(phone); }
+    if (role) { updateFields.push('role = ?'); updateParams.push(role); }
+    if (status) { updateFields.push('status = ?'); updateParams.push(status); }
+
+    if (updateFields.length > 0) {
+      updateParams.push(req.params.id);
+      db.prepare(`UPDATE users SET ${updateFields.join(', ')} WHERE id = ?`).run(...updateParams);
+    }
 
     const updated = db.prepare('SELECT id, name, email, phone, role, status, emailVerified, referralCode, createdAt FROM users WHERE id = ?').get(req.params.id);
     res.json({ success: true, data: updated });
@@ -108,17 +140,33 @@ router.put('/users/:id', (req, res) => {
 
 router.delete('/users/:id', (req, res) => {
   try {
-    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+    const user = db.prepare('SELECT id, role FROM users WHERE id = ?').get(req.params.id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    if (user.role === 'admin') {
+      return res.status(400).json({ success: false, message: 'Cannot delete admin users' });
+    }
+
+    const deleteUser = db.transaction(() => {
+      db.prepare('DELETE FROM sessions WHERE userId = ?').run(req.params.id);
+      db.prepare('DELETE FROM bill_reminders WHERE userId = ?').run(req.params.id);
+      db.prepare('DELETE FROM password_reset_tokens WHERE userId = ?').run(req.params.id);
+      db.prepare('DELETE FROM verification_tokens WHERE userId = ?').run(req.params.id);
+      db.prepare('DELETE FROM wallet WHERE userId = ?').run(req.params.id);
+      db.prepare('DELETE FROM transactions WHERE userId = ?').run(req.params.id);
+      db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+    });
+    deleteUser();
+
     res.json({ success: true, message: 'User deleted' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to delete user' });
   }
 });
 
-// ── Transactions ──
 router.get('/transactions', (req, res) => {
   try {
-    const { type, status, search, from, to, limit = 50, offset = 0 } = req.query;
+    const { type, status, search, from, to } = req.query;
+    const { limit, offset } = parsePagination(req.query);
     let query = 'SELECT t.*, u.name as userName, u.email as userEmail FROM transactions t LEFT JOIN users u ON t.userId = u.id WHERE 1=1';
     const params = [];
 
@@ -132,10 +180,10 @@ router.get('/transactions', (req, res) => {
     const { total } = db.prepare(countQuery).get(...params);
 
     query += ' ORDER BY t.createdAt DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    params.push(limit, offset);
     const transactions = db.prepare(query).all(...params);
 
-    res.json({ success: true, data: { transactions, total } });
+    res.json({ success: true, data: { transactions, total, limit, offset } });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to get transactions' });
   }
@@ -144,14 +192,34 @@ router.get('/transactions', (req, res) => {
 router.put('/transactions/:id/status', (req, res) => {
   try {
     const { status } = req.body;
-    db.prepare('UPDATE transactions SET status = ? WHERE id = ?').run(status, req.params.id);
+    if (!status || !VALID_STATUSES.includes(status)) {
+      return res.status(400).json({ success: false, message: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` });
+    }
+
+    const txn = db.prepare('SELECT id, userId, amount, status as currentStatus FROM transactions WHERE id = ?').get(req.params.id);
+    if (!txn) return res.status(404).json({ success: false, message: 'Transaction not found' });
+
+    const updateStatus = db.transaction(() => {
+      db.prepare('UPDATE transactions SET status = ? WHERE id = ?').run(status, req.params.id);
+
+      if (status === 'refunded' && txn.currentStatus === 'success') {
+        let wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(txn.userId);
+        if (!wallet) {
+          db.prepare('INSERT INTO wallet (userId, balance) VALUES (?, ?)').run(txn.userId, 0);
+          wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(txn.userId);
+        }
+        const newBalance = wallet.balance + txn.amount;
+        db.prepare('UPDATE wallet SET balance = ? WHERE userId = ?').run(newBalance, txn.userId);
+      }
+    });
+    updateStatus();
+
     res.json({ success: true, message: 'Status updated' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed' });
   }
 });
 
-// ── Data Plans ──
 router.get('/plans', (req, res) => {
   try {
     const { network, category, active } = req.query;
@@ -171,8 +239,16 @@ router.get('/plans', (req, res) => {
 router.post('/plans', (req, res) => {
   try {
     const { network, name, size, price, cost_price, validity, category } = req.body;
+    if (!network || !name || !size || !price || !validity) {
+      return res.status(400).json({ success: false, message: 'network, name, size, price, and validity are required' });
+    }
+    const numPrice = parseFloat(price);
+    const numCost = parseFloat(cost_price) || 0;
+    if (isNaN(numPrice) || numPrice <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid price' });
+    }
     const id = `plan-${uuidv4().slice(0, 8)}`;
-    db.prepare('INSERT INTO data_plans (id, network, name, size, price, cost_price, validity, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, network, name, size, price, cost_price || 0, validity, category || 'monthly');
+    db.prepare('INSERT INTO data_plans (id, network, name, size, price, cost_price, validity, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, network, name, size, numPrice, numCost, validity, category || 'monthly');
     const plan = db.prepare('SELECT * FROM data_plans WHERE id = ?').get(id);
     res.status(201).json({ success: true, data: plan });
   } catch (err) {
@@ -186,13 +262,27 @@ router.put('/plans/:id', (req, res) => {
     const plan = db.prepare('SELECT id FROM data_plans WHERE id = ?').get(req.params.id);
     if (!plan) return res.status(404).json({ success: false, message: 'Plan not found' });
 
-    if (name) db.prepare('UPDATE data_plans SET name = ? WHERE id = ?').run(name, req.params.id);
-    if (size) db.prepare('UPDATE data_plans SET size = ? WHERE id = ?').run(size, req.params.id);
-    if (price !== undefined) db.prepare('UPDATE data_plans SET price = ? WHERE id = ?').run(price, req.params.id);
-    if (cost_price !== undefined) db.prepare('UPDATE data_plans SET cost_price = ? WHERE id = ?').run(cost_price, req.params.id);
-    if (validity) db.prepare('UPDATE data_plans SET validity = ? WHERE id = ?').run(validity, req.params.id);
-    if (category) db.prepare('UPDATE data_plans SET category = ? WHERE id = ?').run(category, req.params.id);
-    if (active !== undefined) db.prepare('UPDATE data_plans SET active = ? WHERE id = ?').run(active ? 1 : 0, req.params.id);
+    if (price !== undefined) {
+      const numPrice = parseFloat(price);
+      if (isNaN(numPrice) || numPrice <= 0) {
+        return res.status(400).json({ success: false, message: 'Invalid price' });
+      }
+    }
+
+    const updateFields = [];
+    const updateParams = [];
+    if (name) { updateFields.push('name = ?'); updateParams.push(name); }
+    if (size) { updateFields.push('size = ?'); updateParams.push(size); }
+    if (price !== undefined) { updateFields.push('price = ?'); updateParams.push(parseFloat(price)); }
+    if (cost_price !== undefined) { updateFields.push('cost_price = ?'); updateParams.push(parseFloat(cost_price)); }
+    if (validity) { updateFields.push('validity = ?'); updateParams.push(validity); }
+    if (category) { updateFields.push('category = ?'); updateParams.push(category); }
+    if (active !== undefined) { updateFields.push('active = ?'); updateParams.push(active ? 1 : 0); }
+
+    if (updateFields.length > 0) {
+      updateParams.push(req.params.id);
+      db.prepare(`UPDATE data_plans SET ${updateFields.join(', ')} WHERE id = ?`).run(...updateParams);
+    }
 
     const updated = db.prepare('SELECT * FROM data_plans WHERE id = ?').get(req.params.id);
     res.json({ success: true, data: updated });
@@ -210,7 +300,6 @@ router.delete('/plans/:id', (req, res) => {
   }
 });
 
-// ── Gift Cards ──
 router.get('/giftcards', (req, res) => {
   try {
     const { active } = req.query;
@@ -228,8 +317,15 @@ router.get('/giftcards', (req, res) => {
 router.post('/giftcards', (req, res) => {
   try {
     const { name, currency, minAmount, maxAmount, rate, cost_rate, logo } = req.body;
+    if (!name || !currency || !rate) {
+      return res.status(400).json({ success: false, message: 'name, currency, and rate are required' });
+    }
+    const numRate = parseFloat(rate);
+    if (isNaN(numRate) || numRate <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid rate' });
+    }
     const id = `gc-${uuidv4().slice(0, 8)}`;
-    db.prepare('INSERT INTO gift_cards (id, name, currency, minAmount, maxAmount, rate, cost_rate, logo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, name, currency, minAmount || 10, maxAmount || 500, rate, cost_rate || 0, logo || '');
+    db.prepare('INSERT INTO gift_cards (id, name, currency, minAmount, maxAmount, rate, cost_rate, logo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, name, currency, parseFloat(minAmount) || 10, parseFloat(maxAmount) || 500, numRate, parseFloat(cost_rate) || 0, logo || '');
     const card = db.prepare('SELECT * FROM gift_cards WHERE id = ?').get(id);
     res.status(201).json({ success: true, data: card });
   } catch (err) {
@@ -243,14 +339,21 @@ router.put('/giftcards/:id', (req, res) => {
     const card = db.prepare('SELECT id FROM gift_cards WHERE id = ?').get(req.params.id);
     if (!card) return res.status(404).json({ success: false, message: 'Card not found' });
 
-    if (name) db.prepare('UPDATE gift_cards SET name = ? WHERE id = ?').run(name, req.params.id);
-    if (currency) db.prepare('UPDATE gift_cards SET currency = ? WHERE id = ?').run(currency, req.params.id);
-    if (minAmount !== undefined) db.prepare('UPDATE gift_cards SET minAmount = ? WHERE id = ?').run(minAmount, req.params.id);
-    if (maxAmount !== undefined) db.prepare('UPDATE gift_cards SET maxAmount = ? WHERE id = ?').run(maxAmount, req.params.id);
-    if (rate !== undefined) db.prepare('UPDATE gift_cards SET rate = ? WHERE id = ?').run(rate, req.params.id);
-    if (cost_rate !== undefined) db.prepare('UPDATE gift_cards SET cost_rate = ? WHERE id = ?').run(cost_rate, req.params.id);
-    if (logo !== undefined) db.prepare('UPDATE gift_cards SET logo = ? WHERE id = ?').run(logo, req.params.id);
-    if (active !== undefined) db.prepare('UPDATE gift_cards SET active = ? WHERE id = ?').run(active ? 1 : 0, req.params.id);
+    const updateFields = [];
+    const updateParams = [];
+    if (name) { updateFields.push('name = ?'); updateParams.push(name); }
+    if (currency) { updateFields.push('currency = ?'); updateParams.push(currency); }
+    if (minAmount !== undefined) { updateFields.push('minAmount = ?'); updateParams.push(parseFloat(minAmount)); }
+    if (maxAmount !== undefined) { updateFields.push('maxAmount = ?'); updateParams.push(parseFloat(maxAmount)); }
+    if (rate !== undefined) { updateFields.push('rate = ?'); updateParams.push(parseFloat(rate)); }
+    if (cost_rate !== undefined) { updateFields.push('cost_rate = ?'); updateParams.push(parseFloat(cost_rate)); }
+    if (logo !== undefined) { updateFields.push('logo = ?'); updateParams.push(logo); }
+    if (active !== undefined) { updateFields.push('active = ?'); updateParams.push(active ? 1 : 0); }
+
+    if (updateFields.length > 0) {
+      updateParams.push(req.params.id);
+      db.prepare(`UPDATE gift_cards SET ${updateFields.join(', ')} WHERE id = ?`).run(...updateParams);
+    }
 
     const updated = db.prepare('SELECT * FROM gift_cards WHERE id = ?').get(req.params.id);
     res.json({ success: true, data: updated });
@@ -268,7 +371,6 @@ router.delete('/giftcards/:id', (req, res) => {
   }
 });
 
-// ── Settings ──
 router.get('/settings', (req, res) => {
   try {
     const settings = db.prepare('SELECT * FROM admin_settings').all();
@@ -283,17 +385,23 @@ router.get('/settings', (req, res) => {
 router.put('/settings', (req, res) => {
   try {
     const settings = req.body;
+    const protectedKeys = ['paystack_secret_key'];
     const upsert = db.prepare('INSERT INTO admin_settings (key, value, updatedAt) VALUES (?, ?, datetime("now")) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt');
-    for (const [key, value] of Object.entries(settings)) {
-      upsert.run(key, String(value));
-    }
+
+    const updateSettings = db.transaction(() => {
+      for (const [key, value] of Object.entries(settings)) {
+        if (protectedKeys.includes(key)) continue;
+        upsert.run(key, String(value));
+      }
+    });
+    updateSettings();
+
     res.json({ success: true, message: 'Settings updated' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed' });
   }
 });
 
-// ── Announcements ──
 router.get('/announcements', (req, res) => {
   try {
     const announcements = db.prepare('SELECT * FROM announcements ORDER BY createdAt DESC').all();
@@ -306,6 +414,9 @@ router.get('/announcements', (req, res) => {
 router.post('/announcements', (req, res) => {
   try {
     const { title, message, type } = req.body;
+    if (!title || !message) {
+      return res.status(400).json({ success: false, message: 'title and message are required' });
+    }
     const id = `ann-${uuidv4().slice(0, 8)}`;
     db.prepare('INSERT INTO announcements (id, title, message, type) VALUES (?, ?, ?, ?)').run(id, title, message, type || 'info');
     const ann = db.prepare('SELECT * FROM announcements WHERE id = ?').get(id);

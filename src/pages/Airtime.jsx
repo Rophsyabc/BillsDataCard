@@ -16,12 +16,12 @@ export default function Airtime() {
   const [phoneError, setPhoneError] = useState('');
 
   useEffect(() => {
-    api.getNetworks().then((res) => setNetworks(res.data));
+    api.getNetworks().then((res) => setNetworks(res.data)).catch(() => {});
   }, []);
 
   useEffect(() => {
     if (selectedNetwork) {
-      api.getAirtimeAmounts(selectedNetwork).then((res) => setAmounts(res.data));
+      api.getAirtimeAmounts(selectedNetwork).then((res) => setAmounts(res.data)).catch(() => {});
     }
   }, [selectedNetwork]);
 

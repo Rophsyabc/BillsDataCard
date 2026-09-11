@@ -15,7 +15,7 @@ export default function Electricity() {
   const [result, setResult] = useState(null);
 
   useEffect(() => {
-    api.getElectricityDiscos().then((res) => setDiscos(res.data));
+    api.getElectricityDiscos().then((res) => setDiscos(res.data)).catch(() => {});
   }, []);
 
   const handleValidate = async () => {
@@ -33,6 +33,13 @@ export default function Electricity() {
     e.preventDefault();
     setLoading(true);
     setResult(null);
+
+    if (parseInt(amount) > balance) {
+      setResult({ success: false, message: 'Insufficient wallet balance. Please fund your wallet.' });
+      setLoading(false);
+      return;
+    }
+
     const res = await api.buyElectricity({
       disco: selectedDisco,
       meterNumber,

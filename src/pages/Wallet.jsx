@@ -5,7 +5,7 @@ import { api } from '../api/api';
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 export default function Wallet() {
-  const { balance, refreshBalance, user } = useApp();
+  const { balance, refreshBalance, user, token } = useApp();
   const [activeTab, setActiveTab] = useState('fund');
   const [fundAmount, setFundAmount] = useState('');
   const [fundMethod, setFundMethod] = useState('card');
@@ -30,7 +30,10 @@ export default function Wallet() {
       try {
         const res = await fetch(`${API_BASE}/api/payment/bank-transfer`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           body: JSON.stringify({ amount, email: user?.email }),
         });
         const data = await res.json();
@@ -48,7 +51,10 @@ export default function Wallet() {
       try {
         const res = await fetch(`${API_BASE}/api/payment/initialize`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           body: JSON.stringify({
             amount,
             email: user?.email || 'user@paybills.com',
@@ -87,6 +93,13 @@ export default function Wallet() {
     e.preventDefault();
     setLoading(true);
     setResult(null);
+
+    if (parseInt(transferAmount) > balance) {
+      setResult({ success: false, message: 'Insufficient wallet balance.' });
+      setLoading(false);
+      return;
+    }
+
     const res = await api.transferWallet({
       recipient: transferRecipient,
       amount: parseInt(transferAmount),

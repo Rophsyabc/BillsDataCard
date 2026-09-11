@@ -13,7 +13,7 @@ export default function GiftCards() {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    api.getGiftCards().then((res) => setCards(res.data));
+    api.getGiftCards().then((res) => setCards(res.data)).catch(() => {});
   }, []);
 
   const filteredCards = cards.filter((card) =>
@@ -27,6 +27,13 @@ export default function GiftCards() {
     e.preventDefault();
     setLoading(true);
     setResult(null);
+
+    if (totalCost > balance) {
+      setResult({ success: false, message: 'Insufficient wallet balance. Please fund your wallet.' });
+      setLoading(false);
+      return;
+    }
+
     const res = await api.buyGiftCard({
       cardId: selectedCard,
       amount: parseInt(amount),

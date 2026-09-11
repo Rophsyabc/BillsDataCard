@@ -43,32 +43,10 @@ export default function Login() {
   };
 
   const handleGoogleLogin = async () => {
-    // Simulate Google OAuth - in production, use @react-oauth/google
     setLoading(true);
     setError('');
-
     try {
-      // Simulate Google credential (in production, this comes from Google's OAuth popup)
-      const mockGoogleUser = {
-        email: 'demo@google.com',
-        name: 'Google User',
-        googleId: 'google-' + Date.now(),
-        photo: '',
-      };
-
-      const res = await fetch(`${API_BASE}/auth/google`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(mockGoogleUser),
-      });
-      const data = await res.json();
-
-      if (data.success) {
-        login(data.data.user, data.data.token);
-        navigate('/');
-      } else {
-        setError(data.message || 'Google login failed');
-      }
+      setError('Google authentication coming soon');
     } catch {
       setError('Google authentication failed');
     } finally {
@@ -86,7 +64,6 @@ export default function Login() {
     setError('');
 
     try {
-      // WebAuthn - Check if credential exists
       const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
       if (!available) {
         setError('Platform authenticator not available');
@@ -94,17 +71,7 @@ export default function Login() {
         return;
       }
 
-      // In production, you would retrieve the stored credential ID from your server
-      // For demo, we simulate a successful biometric authentication
-      const mockUser = {
-        email: 'biometric@user.com',
-        name: 'Biometric User',
-        id: 'USR-BIO',
-      };
-
-      // Simulate biometric success
-      login(mockUser, 'biometric-token-' + Date.now());
-      navigate('/');
+      setError('Biometric authentication coming soon');
     } catch {
       setError('Biometric authentication failed');
     } finally {

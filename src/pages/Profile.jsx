@@ -30,7 +30,9 @@ export default function Profile() {
       });
       const data = await res.json();
       if (data.success) setSessions(data.data);
-    } catch {}
+    } catch (e) {
+      console.error('Failed to fetch sessions:', e);
+    }
   };
 
   const handleUpdateProfile = async (e) => {
@@ -85,7 +87,9 @@ export default function Profile() {
       });
       const data = await res.json();
       if (data.success) setTwoFASetup(data.data);
-    } catch {}
+    } catch (e) {
+      console.error('Failed to setup 2FA:', e);
+    }
   };
 
   const handleEnable2FA = async () => {
@@ -131,7 +135,9 @@ export default function Profile() {
         headers: { Authorization: `Bearer ${token}` },
       });
       fetchSessions();
-    } catch {}
+    } catch (e) {
+      console.error('Failed to revoke session:', e);
+    }
   };
 
   const handleRevokeAll = async () => {
@@ -142,7 +148,9 @@ export default function Profile() {
         headers: { Authorization: `Bearer ${token}` },
       });
       fetchSessions();
-    } catch {}
+    } catch (e) {
+      console.error('Failed to revoke sessions:', e);
+    }
   };
 
   const getPasswordStrength = (pwd) => {
@@ -197,7 +205,7 @@ export default function Profile() {
           </div>
           <div className="form-group">
             <label>Referral Code</label>
-            <input type="text" value={user?. referralCode || ''} readOnly />
+            <input type="text" value={user?.referralCode || ''} readOnly />
           </div>
           <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'Saving...' : 'Save Changes'}</button>
         </form>

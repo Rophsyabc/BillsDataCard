@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import AdminLayout from '../components/AdminLayout';
+import { useApp } from '../context/AppContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-const token = () => localStorage.getItem('paybills_token');
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState({});
@@ -10,11 +10,12 @@ export default function AdminSettings() {
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [newAnn, setNewAnn] = useState({ title: '', message: '', type: 'info' });
+  const { token } = useApp();
 
   useEffect(() => {
     Promise.all([
-      fetch(`${API_BASE}/api/admin/settings`, { headers: { Authorization: `Bearer ${token()}` } }).then((r) => r.json()),
-      fetch(`${API_BASE}/api/admin/announcements`, { headers: { Authorization: `Bearer ${token()}` } }).then((r) => r.json()),
+      fetch(`${API_BASE}/api/admin/settings`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json()),
+      fetch(`${API_BASE}/api/admin/announcements`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json()),
     ]).then(([s, a]) => {
       if (s.success) setSettings(s.data);
       if (a.success) setAnnouncements(a.data);
@@ -23,31 +24,43 @@ export default function AdminSettings() {
   }, []);
 
   const saveSettings = async () => {
-    await fetch(`${API_BASE}/api/admin/settings`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-      body: JSON.stringify(settings),
-    });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    try {
+      await fetch(`${API_BASE}/api/admin/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(settings),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      console.error('Failed to save settings:', e);
+    }
   };
 
   const addAnnouncement = async () => {
     if (!newAnn.title || !newAnn.message) return;
-    await fetch(`${API_BASE}/api/admin/announcements`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-      body: JSON.stringify(newAnn),
-    });
-    setNewAnn({ title: '', message: '', type: 'info' });
-    const res = await fetch(`${API_BASE}/api/admin/announcements`, { headers: { Authorization: `Bearer ${token()}` } });
-    const data = await res.json();
-    if (data.success) setAnnouncements(data.data);
+    try {
+      await fetch(`${API_BASE}/api/admin/announcements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(newAnn),
+      });
+      setNewAnn({ title: '', message: '', type: 'info' });
+      const res = await fetch(`${API_BASE}/api/admin/announcements`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.success) setAnnouncements(data.data);
+    } catch (e) {
+      console.error('Failed to add announcement:', e);
+    }
   };
 
   const deleteAnnouncement = async (id) => {
-    await fetch(`${API_BASE}/api/admin/announcements/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
-    setAnnouncements(announcements.filter((a) => a.id !== id));
+    try {
+      await fetch(`${API_BASE}/api/admin/announcements/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      setAnnouncements(announcements.filter((a) => a.id !== id));
+    } catch (e) {
+      console.error('Failed to delete announcement:', e);
+    }
   };
 
   if (loading) return <AdminLayout><h2>Settings</h2><p>Loading...</p></AdminLayout>;

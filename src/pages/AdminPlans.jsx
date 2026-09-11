@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import AdminLayout from '../components/AdminLayout';
+import { useApp } from '../context/AppContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-const token = () => localStorage.getItem('paybills_token');
 
 const networks = ['mtn', 'airtel', 'glo', '9mobile', 'smile'];
 const categories = ['daily', 'weekly', 'monthly', 'unlimited'];
@@ -13,43 +13,60 @@ export default function AdminPlans() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
+  const { token } = useApp();
 
   const fetchPlans = async () => {
     setLoading(true);
     const params = new URLSearchParams();
     if (networkFilter) params.set('network', networkFilter);
-    const res = await fetch(`${API_BASE}/api/admin/plans?${params}`, { headers: { Authorization: `Bearer ${token()}` } });
-    const data = await res.json();
-    if (data.success) setPlans(data.data);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/plans?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.success) setPlans(data.data);
+    } catch (e) {
+      console.error('Failed to fetch plans:', e);
+    }
     setLoading(false);
   };
 
-  useEffect(() => { fetchPlans(); }, [networkFilter]);
+  useEffect(() => { fetchPlans(); }, [networkFilter, token]);
 
   const savePlan = async (id, updates) => {
-    await fetch(`${API_BASE}/api/admin/plans/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-      body: JSON.stringify(updates),
-    });
-    setEditing(null);
-    fetchPlans();
+    try {
+      await fetch(`${API_BASE}/api/admin/plans/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(updates),
+      });
+      setEditing(null);
+      fetchPlans();
+    } catch (e) {
+      console.error('Failed to save plan:', e);
+    }
   };
 
   const addPlan = async () => {
-    await fetch(`${API_BASE}/api/admin/plans`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-      body: JSON.stringify(form),
-    });
-    setForm({});
-    fetchPlans();
+    try {
+      await fetch(`${API_BASE}/api/admin/plans`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form),
+      });
+      setForm({});
+      fetchPlans();
+    } catch (e) {
+      console.error('Failed to add plan:', e);
+    }
   };
 
   const deletePlan = async (id) => {
     if (!confirm('Delete this plan?')) return;
-    await fetch(`${API_BASE}/api/admin/plans/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
-    fetchPlans();
+    try {
+      await fetch(`${API_BASE}/api/admin/plans/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      fetchPlans();
+    } catch (e) {
+      console.error('Failed to delete plan:', e);
+    }
   };
 
   return (

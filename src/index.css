@@ -20,6 +20,18 @@
   --shadow: 0 1px 3px rgba(0,0,0,0.3);
   --shadow-md: 0 4px 6px rgba(0,0,0,0.3);
   --shadow-lg: 0 10px 25px rgba(0,0,0,0.4);
+  --color-transfer: #6366F1;
+  --color-airtime: #0EA5E9;
+  --color-data: #10B981;
+  --color-betting: #EF4444;
+  --color-electricity: #F59E0B;
+  --color-tv: #8B5CF6;
+  --color-giftcard: #EC4899;
+  --color-receipt: #64748B;
+  --color-success: #10B981;
+  --color-error: #EF4444;
+  --color-warning: #F59E0B;
+  --color-cashback: #A855F7;
 }
 
 [data-theme="dark"] {
@@ -539,7 +551,7 @@ a {
 .service-card:hover {
   border-color: var(--primary);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(234, 179, 8, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 201, 167, 0.1);
 }
 
 .service-icon-circle {
@@ -1157,8 +1169,8 @@ a {
   color: var(--primary);
 }
 .data-category-pill.active {
-  background: #EAB308;
-  border-color: #EAB308;
+  background: #00C9A7;
+  border-color: #00C9A7;
   color: #0F1923;
 }
 

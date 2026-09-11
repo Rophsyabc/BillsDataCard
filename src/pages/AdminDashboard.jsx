@@ -1,20 +1,21 @@
 import { useState, useEffect } from 'react';
 import AdminLayout from '../components/AdminLayout';
+import { useApp } from '../context/AppContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const token = localStorage.getItem('paybills_token');
+  const { token } = useApp();
 
   useEffect(() => {
     fetch(`${API_BASE}/api/admin/stats`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => { if (d.success) setStats(d.data); })
-      .catch(() => {})
+      .catch((e) => console.error('Failed to load admin stats:', e))
       .finally(() => setLoading(false));
-  }, []);
+  }, [token]);
 
   if (loading) return <AdminLayout><h2>Dashboard</h2><p>Loading...</p></AdminLayout>;
   if (!stats) return <AdminLayout><h2>Dashboard</h2><p>Failed to load stats</p></AdminLayout>;

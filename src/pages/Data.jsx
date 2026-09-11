@@ -42,7 +42,7 @@ export default function Data() {
       api.getDataPlans(selectedNetwork).then((res) => {
         setPlans(res.data);
         setPlansLoading(false);
-      });
+      }).catch(() => setPlansLoading(false));
     } else {
       setPlans([]);
     }

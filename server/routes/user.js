@@ -5,10 +5,19 @@ import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 
-// ── Transactions ──
+function parsePagination(query) {
+  let limit = parseInt(query.limit, 10);
+  let offset = parseInt(query.offset, 10);
+  if (isNaN(limit) || limit < 1) limit = 50;
+  if (isNaN(offset) || offset < 0) offset = 0;
+  if (limit > 100) limit = 100;
+  return { limit, offset };
+}
+
 router.get('/', authMiddleware, (req, res) => {
   try {
-    const { type, status, search, from, to, limit = 50, offset = 0 } = req.query;
+    const { type, status, search, from, to } = req.query;
+    const { limit, offset } = parsePagination(req.query);
     let query = 'SELECT * FROM transactions WHERE userId = ?';
     const params = [req.user.id];
 
@@ -18,24 +27,27 @@ router.get('/', authMiddleware, (req, res) => {
     if (from) { query += ' AND createdAt >= ?'; params.push(from); }
     if (to) { query += ' AND createdAt <= ?'; params.push(to); }
 
+    const countQuery = query.replace('SELECT *', 'SELECT COUNT(*) as total');
+    const { total } = db.prepare(countQuery).get(...params);
+
     query += ' ORDER BY createdAt DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    params.push(limit, offset);
 
     const transactions = db.prepare(query).all(...params);
-    const countQuery = query.replace('SELECT *', 'SELECT COUNT(*) as total').replace(/ORDER BY.*$/, '');
-    const { total } = db.prepare(countQuery).get(...params.slice(0, -2));
 
-    res.json({ success: true, data: { transactions, total } });
+    res.json({ success: true, data: { transactions, total, limit, offset } });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to get transactions' });
   }
 });
 
-// ── Analytics ──
 router.get('/analytics/summary', authMiddleware, (req, res) => {
   try {
     const { period = '30' } = req.query;
-    const days = parseInt(period);
+    const days = parseInt(period, 10);
+    if (isNaN(days) || days < 1 || days > 365) {
+      return res.status(400).json({ success: false, message: 'Period must be 1-365 days' });
+    }
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
     const totalSpent = db.prepare('SELECT SUM(amount) as total FROM transactions WHERE userId = ? AND createdAt >= ? AND status = ?').get(req.user.id, since, 'success');
@@ -62,7 +74,6 @@ router.get('/analytics/summary', authMiddleware, (req, res) => {
   }
 });
 
-// ── Bill Reminders ──
 router.get('/reminders', authMiddleware, (req, res) => {
   try {
     const reminders = db.prepare('SELECT * FROM bill_reminders WHERE userId = ? AND active = 1 ORDER BY nextDue').all(req.user.id);
@@ -75,8 +86,15 @@ router.get('/reminders', authMiddleware, (req, res) => {
 router.post('/reminders', authMiddleware, (req, res) => {
   try {
     const { type, service, amount, phone, meter, iuc, nextDue, frequency } = req.body;
+    if (!type || !service || !amount || !nextDue) {
+      return res.status(400).json({ success: false, message: 'type, service, amount, and nextDue are required' });
+    }
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid amount' });
+    }
     const id = `REM-${uuidv4().slice(0, 8)}`;
-    db.prepare('INSERT INTO bill_reminders (id, userId, type, service, amount, phone, meter, iuc, nextDue, frequency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, req.user.id, type, service, amount, phone || '', meter || '', iuc || '', nextDue, frequency || 'monthly');
+    db.prepare('INSERT INTO bill_reminders (id, userId, type, service, amount, phone, meter, iuc, nextDue, frequency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, req.user.id, type, service, numAmount, phone || '', meter || '', iuc || '', nextDue, frequency || 'monthly');
     const reminder = db.prepare('SELECT * FROM bill_reminders WHERE id = ?').get(id);
     res.status(201).json({ success: true, data: reminder });
   } catch (err) {
@@ -86,14 +104,16 @@ router.post('/reminders', authMiddleware, (req, res) => {
 
 router.delete('/reminders/:id', authMiddleware, (req, res) => {
   try {
-    db.prepare('DELETE FROM bill_reminders WHERE id = ? AND userId = ?').run(req.params.id, req.user.id);
+    const result = db.prepare('DELETE FROM bill_reminders WHERE id = ? AND userId = ?').run(req.params.id, req.user.id);
+    if (result.changes === 0) {
+      return res.status(404).json({ success: false, message: 'Reminder not found' });
+    }
     res.json({ success: true, message: 'Reminder deleted' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed' });
   }
 });
 
-// ── Referrals ──
 router.get('/referrals', authMiddleware, (req, res) => {
   try {
     const user = db.prepare('SELECT referralCode FROM users WHERE id = ?').get(req.user.id);
@@ -105,7 +125,6 @@ router.get('/referrals', authMiddleware, (req, res) => {
   }
 });
 
-// ── Get single transaction (MUST be last - catch-all param route) ──
 router.get('/:ref', authMiddleware, (req, res) => {
   try {
     const txn = db.prepare('SELECT * FROM transactions WHERE id = ? AND userId = ?').get(req.params.ref, req.user.id);
