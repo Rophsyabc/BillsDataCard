@@ -63,6 +63,12 @@ router.post('/signup', signupLimiter, async (req, res) => {
     });
     insertUser();
 
+    // First user becomes admin
+    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
+    if (userCount === 1) {
+      db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(userId);
+    }
+
     const tokenExp = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     db.prepare(`INSERT INTO verification_tokens (token, userId, expiresAt) VALUES (?, ?, ?)`).run(verificationToken, userId, tokenExp);
 
@@ -76,7 +82,7 @@ router.post('/signup', signupLimiter, async (req, res) => {
       success: true,
       message: 'Account created. Please check your email to verify your account.',
       data: {
-        user: { id: userId, name, email, phone: phone || '', emailVerified: false, referralCode: userReferralCode, role: 'user', status: 'active' },
+        user: { id: userId, name, email, phone: phone || '', emailVerified: false, referralCode: userReferralCode, role: userCount === 1 ? 'admin' : 'user', status: 'active' },
         token,
         refreshToken,
       },
