@@ -58,7 +58,8 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const ninInputRef = useRef(null);
-  const photoInputRef = useRef(null);
+  const photoGalleryRef = useRef(null);
+  const photoCameraRef = useRef(null);
 
   useEffect(() => {
     if (isOpen && token) {
@@ -123,11 +124,7 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
   };
 
   const handleCaptureLivePhoto = () => {
-    if (photoInputRef.current) {
-      photoInputRef.current.removeAttribute('capture');
-      photoInputRef.current.setAttribute('capture', 'user');
-      photoInputRef.current.click();
-    }
+    photoCameraRef.current?.click();
   };
 
   const handleRemoveDocument = (type) => {
@@ -138,7 +135,8 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
     } else {
       setLivePhoto(null);
       setLivePhotoPreview(null);
-      if (photoInputRef.current) photoInputRef.current.value = '';
+      if (photoGalleryRef.current) photoGalleryRef.current.value = '';
+      if (photoCameraRef.current) photoCameraRef.current.value = '';
     }
   };
 
@@ -481,7 +479,14 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
                   <label>Live Photo (selfie)</label>
                   <div className="kyc-upload-area">
                     <input
-                      ref={photoInputRef}
+                      ref={photoGalleryRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={(e) => handleFileSelect(e, 'photo')}
+                      style={{ display: 'none' }}
+                    />
+                    <input
+                      ref={photoCameraRef}
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
                       capture="user"
@@ -492,7 +497,7 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
                       <div className="kyc-upload-preview kyc-upload-preview-round">
                         <img src={livePhotoPreview} alt="Live Photo" />
                         <div className="kyc-upload-actions">
-                          <button type="button" className="kyc-btn-icon" onClick={() => photoInputRef.current?.click()}>
+                          <button type="button" className="kyc-btn-icon" onClick={() => photoGalleryRef.current?.click()}>
                             Replace
                           </button>
                           <button type="button" className="kyc-btn-icon kyc-btn-danger" onClick={() => handleRemoveDocument('photo')}>
@@ -505,12 +510,7 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
                         <button
                           type="button"
                           className="kyc-upload-trigger"
-                          onClick={() => {
-                            if (photoInputRef.current) {
-                              photoInputRef.current.removeAttribute('capture');
-                            }
-                            photoInputRef.current?.click();
-                          }}
+                          onClick={() => photoGalleryRef.current?.click()}
                           disabled={uploadingPhoto}
                         >
                           {uploadingPhoto ? (
