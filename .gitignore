@@ -21,6 +21,11 @@ ios
 .env.local
 .env.*.local
 
+# Dev SSL certs
+cert.pfx
+cert.pem
+key.pem
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
