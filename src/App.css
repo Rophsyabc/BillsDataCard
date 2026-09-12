@@ -2548,3 +2548,165 @@
     align-items: stretch;
   }
 }
+
+/* ═══════════════════════════════════════════════
+   Camera Capture Component
+   ═══════════════════════════════════════════════ */
+.camera-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+.camera-header {
+  text-align: center;
+  margin-bottom: 16px;
+}
+.camera-header h4 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+.camera-header p {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.camera-error-text {
+  color: #EF4444;
+}
+.camera-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 20px;
+}
+.camera-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border, #e2e8f0);
+  border-top-color: var(--primary, #6C63FF);
+  border-radius: 50%;
+  animation: cameraSpin 0.8s linear infinite;
+}
+@keyframes cameraSpin {
+  to { transform: rotate(360deg); }
+}
+.camera-preview-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  aspect-ratio: 3/4;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  margin-bottom: 16px;
+}
+.camera-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+.camera-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.camera-face-guide {
+  width: 55%;
+  height: 65%;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-radius: 50%;
+}
+.camera-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 12px 0;
+}
+.camera-capture-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: transform 0.1s;
+}
+.camera-capture-btn:active {
+  transform: scale(0.9);
+}
+.camera-capture-inner {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #fff;
+  transition: background 0.15s;
+}
+.camera-capture-btn:hover .camera-capture-inner {
+  background: #f0f0f0;
+}
+.camera-cancel-btn,
+.camera-flip-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.camera-cancel-btn:hover,
+.camera-flip-btn:hover {
+  background: rgba(255,255,255,0.3);
+}
+.camera-review-wrap {
+  width: 100%;
+  max-width: 400px;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.camera-review-img {
+  width: 100%;
+  display: block;
+  border-radius: 12px;
+}
+.camera-actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  max-width: 400px;
+}
+
+@media (max-width: 768px) {
+  .camera-preview-wrap {
+    max-width: 100%;
+    border-radius: 0;
+    aspect-ratio: 3/4;
+  }
+  .camera-review-wrap {
+    max-width: 100%;
+    border-radius: 0;
+  }
+  .camera-actions {
+    flex-direction: column;
+  }
+  .camera-actions .kyc-btn {
+    width: 100%;
+  }
+}

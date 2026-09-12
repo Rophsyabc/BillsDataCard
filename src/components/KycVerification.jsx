@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { KycStatusBadge } from './ProfileAvatar';
+import CameraCapture from './CameraCapture';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -56,10 +57,10 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
 
   const [uploadingNin, setUploadingNin] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   const ninInputRef = useRef(null);
   const photoGalleryRef = useRef(null);
-  const photoCameraRef = useRef(null);
 
   useEffect(() => {
     if (isOpen && token) {
@@ -124,7 +125,18 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
   };
 
   const handleCaptureLivePhoto = () => {
-    photoCameraRef.current?.click();
+    setCameraOpen(true);
+  };
+
+  const handleCameraCapture = (imageDataUrl) => {
+    setLivePhoto(imageDataUrl);
+    setLivePhotoPreview(imageDataUrl);
+    setCameraOpen(false);
+    setResult(null);
+  };
+
+  const handleCameraCancel = () => {
+    setCameraOpen(false);
   };
 
   const handleRemoveDocument = (type) => {
@@ -136,7 +148,6 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
       setLivePhoto(null);
       setLivePhotoPreview(null);
       if (photoGalleryRef.current) photoGalleryRef.current.value = '';
-      if (photoCameraRef.current) photoCameraRef.current.value = '';
     }
   };
 
@@ -485,14 +496,6 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
                       onChange={(e) => handleFileSelect(e, 'photo')}
                       style={{ display: 'none' }}
                     />
-                    <input
-                      ref={photoCameraRef}
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      capture="user"
-                      onChange={(e) => handleFileSelect(e, 'photo')}
-                      style={{ display: 'none' }}
-                    />
                     {livePhotoPreview ? (
                       <div className="kyc-upload-preview kyc-upload-preview-round">
                         <img src={livePhotoPreview} alt="Live Photo" />
@@ -532,7 +535,7 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
                           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" />
                           </svg>
-                          <span>Take Photo</span>
+                          <span>Use Camera</span>
                         </button>
                       </div>
                     )}
@@ -616,9 +619,17 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
                 </div>
               </div>
             )}
-          </div>
+           </div>
         )}
       </div>
+
+      {cameraOpen && (
+        <div className="kyc-overlay" style={{ zIndex: 2000 }} onClick={(e) => e.target === e.currentTarget && handleCameraCancel()}>
+          <div className="kyc-modal" style={{ maxWidth: 440, maxHeight: '90vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <CameraCapture onCapture={handleCameraCapture} onCancel={handleCameraCancel} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
