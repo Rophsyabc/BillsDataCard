@@ -122,52 +122,11 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
     }
   };
 
-  const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-  const handleCaptureLivePhoto = async () => {
-    if (isMobile) {
-      if (photoInputRef.current) {
-        photoInputRef.current.removeAttribute('capture');
-        photoInputRef.current.setAttribute('capture', 'user');
-        photoInputRef.current.click();
-      }
-      return;
-    }
-
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setResult({ success: false, message: 'Camera is not supported in this browser. Please use the file upload option instead.' });
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-      });
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      video.setAttribute('playsinline', 'true');
-      video.play();
-      await new Promise((r) => setTimeout(r, 1500));
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d').drawImage(video, 0, 0);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-      stream.getTracks().forEach((t) => t.stop());
-      setLivePhoto(dataUrl);
-      setLivePhotoPreview(dataUrl);
-    } catch (err) {
-      let msg = 'Camera access was denied. ';
-      if (err.name === 'NotAllowedError') {
-        msg += 'Please allow camera permission in your browser settings and try again, or use the file upload option.';
-      } else if (err.name === 'NotFoundError') {
-        msg += 'No camera found on this device. Please use the file upload option.';
-      } else if (err.name === 'NotReadableError') {
-        msg += 'Camera is being used by another app. Please close other camera apps and try again.';
-      } else {
-        msg += 'Please use the file upload option instead.';
-      }
-      setResult({ success: false, message: msg });
+  const handleCaptureLivePhoto = () => {
+    if (photoInputRef.current) {
+      photoInputRef.current.removeAttribute('capture');
+      photoInputRef.current.setAttribute('capture', 'user');
+      photoInputRef.current.click();
     }
   };
 
@@ -561,7 +520,7 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
                               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
                               </svg>
-                              <span>{isMobile ? 'Choose from Gallery' : 'Upload Photo'}</span>
+                              <span>Upload Photo</span>
                             </>
                           )}
                         </button>
@@ -573,7 +532,7 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
                           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" />
                           </svg>
-                          <span>{isMobile ? 'Take Photo' : 'Use Camera'}</span>
+                          <span>Take Photo</span>
                         </button>
                       </div>
                     )}
