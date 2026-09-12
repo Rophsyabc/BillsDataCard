@@ -12,6 +12,11 @@ function fileToBase64(file) {
   });
 }
 
+function isMobile() {
+  return /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    || (navigator.maxTouchPoints > 0 && window.innerWidth < 768);
+}
+
 export default function CameraCapture({ onCapture, onCancel }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -22,6 +27,7 @@ export default function CameraCapture({ onCapture, onCancel }) {
   const [capturedImage, setCapturedImage] = useState(null);
   const [error, setError] = useState(null);
   const [facingMode, setFacingMode] = useState('user');
+  const [canRetry, setCanRetry] = useState(false);
 
   const stopStream = useCallback(() => {
     if (streamRef.current) {
@@ -36,10 +42,16 @@ export default function CameraCapture({ onCapture, onCancel }) {
 
   const startCamera = useCallback(async () => {
     setError(null);
+    setCanRetry(false);
     setMode('loading');
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setMode('fallback');
+      if (isMobile()) {
+        openNativeCamera();
+      } else {
+        setError('Camera not supported in this browser. Please try Chrome, Firefox, or Edge, or use Upload Photo.');
+        setMode('error');
+      }
       return;
     }
 
@@ -56,20 +68,42 @@ export default function CameraCapture({ onCapture, onCancel }) {
       setMode('preview');
     } catch (err) {
       if (err.name === 'NotAllowedError') {
-        setError('Camera permission was denied. Please allow camera access in your browser/device settings, or use Upload Photo instead.');
-        setMode('fallback');
+        if (isMobile()) {
+          openNativeCamera();
+        } else {
+          setError('Camera access was blocked. Click below to try again, or check your browser camera settings.');
+          setCanRetry(true);
+          setMode('error');
+        }
       } else if (err.name === 'NotFoundError') {
-        setError('No camera found on this device. Please use Upload Photo instead.');
-        setMode('fallback');
+        if (isMobile()) {
+          openNativeCamera();
+        } else {
+          setError('No camera detected on this device. Please use Upload Photo.');
+          setMode('error');
+        }
       } else if (err.name === 'NotReadableError') {
-        setError('Camera is being used by another application. Please close other camera apps and try again.');
-        setMode('fallback');
+        setError('Camera is being used by another app. Close other camera apps and try again.');
+        setMode('error');
       } else {
-        setError('Could not start camera. Please try again or use Upload Photo.');
-        setMode('fallback');
+        if (isMobile()) {
+          openNativeCamera();
+        } else {
+          setError('Could not start camera. Please try again or use Upload Photo.');
+          setMode('error');
+        }
       }
     }
   }, [facingMode]);
+
+  const openNativeCamera = useCallback(() => {
+    setMode('loading');
+    setError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+      fileInputRef.current.click();
+    }
+  }, []);
 
   const capturePhoto = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
@@ -78,12 +112,16 @@ export default function CameraCapture({ onCapture, onCancel }) {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
+    if (facingMode === 'user') {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
     stopStream();
     setCapturedImage(dataUrl);
     setMode('review');
-  }, [stopStream]);
+  }, [stopStream, facingMode]);
 
   const handleRetake = useCallback(() => {
     setCapturedImage(null);
@@ -102,19 +140,23 @@ export default function CameraCapture({ onCapture, onCancel }) {
 
     if (!ALLOWED_MIME_TYPES.includes(file.type)) {
       setError('Invalid file type. Please upload JPEG, PNG, or WebP.');
+      setMode('error');
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
       setError(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum size is 5MB.`);
+      setMode('error');
       return;
     }
 
     try {
       const base64 = await fileToBase64(file);
       setCapturedImage(base64);
+      setError(null);
       setMode('review');
     } catch {
       setError('Failed to process the image. Please try again.');
+      setMode('error');
     }
   }, []);
 
@@ -123,6 +165,7 @@ export default function CameraCapture({ onCapture, onCancel }) {
     setCapturedImage(null);
     setMode('idle');
     setError(null);
+    setCanRetry(false);
     onCancel();
   }, [stopStream, onCancel]);
 
@@ -133,6 +176,14 @@ export default function CameraCapture({ onCapture, onCancel }) {
           <h4>Take Live Photo</h4>
           <p>Position your face in the frame and take a clear selfie.</p>
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          capture="user"
+          onChange={handleFallbackFile}
+          style={{ display: 'none' }}
+        />
         <div className="camera-actions">
           <button type="button" className="kyc-btn kyc-btn-primary" onClick={startCamera}>
             Open Camera
@@ -150,9 +201,17 @@ export default function CameraCapture({ onCapture, onCancel }) {
       <div className="camera-container">
         <div className="camera-loading">
           <div className="camera-spinner" />
-          <p>Starting camera...</p>
+          <p>{isMobile() ? 'Opening camera...' : 'Starting camera...'}</p>
         </div>
         <div className="camera-actions">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            capture="user"
+            onChange={handleFallbackFile}
+            style={{ display: 'none' }}
+          />
           <button type="button" className="kyc-btn kyc-btn-secondary" onClick={handleCancel}>
             Cancel
           </button>
@@ -161,13 +220,12 @@ export default function CameraCapture({ onCapture, onCancel }) {
     );
   }
 
-  if (mode === 'fallback') {
+  if (mode === 'error') {
     return (
       <div className="camera-container">
         <div className="camera-header">
-          <h4>Take Live Photo</h4>
+          <h4>Camera Unavailable</h4>
           {error && <p className="camera-error-text">{error}</p>}
-          {!error && <p>Your browser camera is not available. Use the button below to open your device camera.</p>}
         </div>
         <input
           ref={fileInputRef}
@@ -178,9 +236,21 @@ export default function CameraCapture({ onCapture, onCancel }) {
           style={{ display: 'none' }}
         />
         <div className="camera-actions">
-          <button type="button" className="kyc-btn kyc-btn-primary" onClick={() => fileInputRef.current?.click()}>
-            Open Device Camera
-          </button>
+          {canRetry && (
+            <button type="button" className="kyc-btn kyc-btn-primary" onClick={startCamera}>
+              Try Again
+            </button>
+          )}
+          {isMobile() && !canRetry && (
+            <button type="button" className="kyc-btn kyc-btn-primary" onClick={openNativeCamera}>
+              Open Device Camera
+            </button>
+          )}
+          {!canRetry && !isMobile() && (
+            <button type="button" className="kyc-btn kyc-btn-primary" onClick={onCancel}>
+              Use Upload Photo Instead
+            </button>
+          )}
           <button type="button" className="kyc-btn kyc-btn-secondary" onClick={handleCancel}>
             Cancel
           </button>
