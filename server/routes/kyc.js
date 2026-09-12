@@ -63,7 +63,7 @@ router.get('/status', authMiddleware, (req, res) => {
 
 router.post('/submit', authMiddleware, (req, res) => {
   try {
-    const { ninNumber, nameOnNin, ninSlipImage, livePhoto, additionalInfo } = req.body;
+    const { ninNumber, nameOnNin, ninSlipImage, livePhoto, photoSource, additionalInfo } = req.body;
 
     if (!ninNumber || !/^\d{11}$/.test(ninNumber)) {
       return res.status(400).json({ success: false, message: 'Valid 11-digit NIN is required' });
@@ -105,11 +105,12 @@ router.post('/submit', authMiddleware, (req, res) => {
       });
     }
 
+    const validPhotoSource = ['camera', 'upload'].includes(photoSource) ? photoSource : 'camera';
     const jobId = `KYC-${uuidv4().slice(0, 8)}`;
 
     db.prepare(
-      'INSERT INTO kyc_jobs (id, userId, status, kycType, ninNumber, nameOnNin, ninSlipImage, livePhoto, additionalInfo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(jobId, req.user.id, 'pending', 'NIN', ninNumber, nameOnNin.trim(), ninSlipImage, livePhoto, additionalInfo || '');
+      'INSERT INTO kyc_jobs (id, userId, status, kycType, ninNumber, nameOnNin, ninSlipImage, livePhoto, photoSource, additionalInfo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(jobId, req.user.id, 'pending', 'NIN', ninNumber, nameOnNin.trim(), ninSlipImage, livePhoto, validPhotoSource, additionalInfo || '');
 
     db.prepare('UPDATE users SET kycStatus = ? WHERE id = ?').run('pending', req.user.id);
 
@@ -127,7 +128,7 @@ router.post('/submit', authMiddleware, (req, res) => {
 router.get('/job/:id', authMiddleware, (req, res) => {
   try {
     const job = db.prepare(
-      'SELECT id, status, kycType, nameOnNin, ninNumber, adminNote, createdAt, updatedAt FROM kyc_jobs WHERE id = ? AND userId = ?'
+      'SELECT id, status, kycType, nameOnNin, ninNumber, photoSource, adminNote, createdAt, updatedAt FROM kyc_jobs WHERE id = ? AND userId = ?'
     ).get(req.params.id, req.user.id);
     if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
     res.json({ success: true, data: job });
@@ -199,7 +200,7 @@ router.get('/admin/pending', authMiddleware, (req, res) => {
 
     const { status } = req.query;
     let query = `
-      SELECT kj.id, kj.userId, kj.status, kj.kycType, kj.ninNumber, kj.nameOnNin, kj.ninSlipImage, kj.livePhoto, kj.adminNote, kj.createdAt, kj.updatedAt,
+      SELECT kj.id, kj.userId, kj.status, kj.kycType, kj.ninNumber, kj.nameOnNin, kj.ninSlipImage, kj.livePhoto, kj.photoSource, kj.adminNote, kj.createdAt, kj.updatedAt,
              u.name as userName, u.email as userEmail, u.phone as userPhone
       FROM kyc_jobs kj
       JOIN users u ON u.id = kj.userId

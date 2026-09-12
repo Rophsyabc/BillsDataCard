@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import { KycStatusBadge } from './ProfileAvatar';
 import CameraCapture from './CameraCapture';
@@ -38,7 +38,7 @@ function fileToBase64(file) {
 export default function KycVerification({ isOpen, onClose, initialTab }) {
   const { user, token, updateUser } = useApp();
   const [kycStatus, setKycStatus] = useState(null);
-  const [currentStep, setCurrentStep] = useState(STEPS.PERSONAL);
+  const [currentStep, setCurrentStep] = useState(() => (initialTab === 'kyc' ? STEPS.DOCUMENT : STEPS.PERSONAL));
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
 
@@ -48,6 +48,7 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
   const [ninSlipPreview, setNinSlipPreview] = useState(null);
   const [livePhoto, setLivePhoto] = useState(null);
   const [livePhotoPreview, setLivePhotoPreview] = useState(null);
+  const [photoSource, setPhotoSource] = useState(null); // 'camera' or 'upload'
   const [additionalInfo, setAdditionalInfo] = useState('');
 
   const [phone, setPhone] = useState(user?.phone || '');
@@ -62,19 +63,8 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
   const ninInputRef = useRef(null);
   const photoGalleryRef = useRef(null);
 
-  useEffect(() => {
-    if (isOpen && token) {
-      fetchKycStatus();
-    }
-  }, [isOpen, token]);
-
-  useEffect(() => {
-    if (initialTab === 'kyc') {
-      setCurrentStep(STEPS.DOCUMENT);
-    }
-  }, [initialTab]);
-
-  const fetchKycStatus = async () => {
+  const fetchKycStatus = useCallback(async () => {
+    if (!token) return;
     try {
       const res = await fetch(`${API_BASE}/api/kyc/status`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -88,10 +78,16 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
     } catch (e) {
       console.error('Failed to fetch KYC status:', e);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    if (isOpen && token) {
+      fetchKycStatus();
+    }
+  }, [isOpen, token, fetchKycStatus]);
 
   const handleFileSelect = async (e, type) => {
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
     if (!file) return;
 
     const validation = validateFile(file);
@@ -114,6 +110,7 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
       } else {
         setLivePhoto(base64);
         setLivePhotoPreview(base64);
+        setPhotoSource('upload');
       }
       setResult(null);
     } catch {
@@ -131,12 +128,20 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
   const handleCameraCapture = (imageDataUrl) => {
     setLivePhoto(imageDataUrl);
     setLivePhotoPreview(imageDataUrl);
+    setPhotoSource('camera');
     setCameraOpen(false);
     setResult(null);
   };
 
   const handleCameraCancel = () => {
     setCameraOpen(false);
+  };
+
+  const handleSwitchToUpload = () => {
+    setCameraOpen(false);
+    setTimeout(() => {
+      photoGalleryRef.current?.click();
+    }, 150);
   };
 
   const handleRemoveDocument = (type) => {
@@ -147,6 +152,7 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
     } else {
       setLivePhoto(null);
       setLivePhotoPreview(null);
+      setPhotoSource(null);
       if (photoGalleryRef.current) photoGalleryRef.current.value = '';
     }
   };
@@ -224,6 +230,7 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
           nameOnNin: nameOnNin.trim(),
           ninSlipImage,
           livePhoto,
+          photoSource: photoSource || 'camera',
           additionalInfo,
         }),
       });
@@ -262,7 +269,7 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
 
   const status = kycStatus?.status || 'none';
   const isAlreadySubmitted = status === 'pending' || status === 'verified';
-  const canProceedToSubmit = ninSlipImage && livePhoto && ninNumber.length === 11 && nameOnNin.trim();
+  const canProceedToSubmit = ninSlipImage && livePhoto && ninNumber.length === 11 && nameOnNin.trim().length >= 3;
 
   return (
     <div className="kyc-overlay" onClick={onClose}>
@@ -320,11 +327,11 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
         ) : (
           <div className="kyc-flow">
             <div className="kyc-steps-indicator">
-              {Object.values(STEPS).filter(s => s !== STEPS.REVIEW).map((step, idx) => (
+              {Object.values(STEPS).filter((s) => s !== STEPS.REVIEW).map((step, idx) => (
                 <div
                   key={step}
                   className={`kyc-step-dot ${currentStep === step ? 'active' : ''} ${
-                    Object.values(STEPS).filter(s => s !== STEPS.REVIEW).indexOf(currentStep) > idx ? 'completed' : ''
+                    Object.values(STEPS).filter((s) => s !== STEPS.REVIEW).indexOf(currentStep) > idx ? 'completed' : ''
                   }`}
                 >
                   <span>{idx + 1}</span>
@@ -417,7 +424,7 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
             {currentStep === STEPS.DOCUMENT && (
               <div className="kyc-step-content">
                 <h3>Upload Documents</h3>
-                <p className="kyc-step-desc">Upload your NIN slip and a live photo for verification.</p>
+                <p className="kyc-step-desc">Upload your NIN slip and provide a live selfie photo for verification.</p>
 
                 <div className="kyc-form-group">
                   <label>NIN Number</label>
@@ -487,7 +494,11 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
                 </div>
 
                 <div className="kyc-form-group">
-                  <label>Live Photo (selfie)</label>
+                  <label>Live Photo (Selfie)</label>
+                  <p className="kyc-sublabel">
+                    Provide a clear photo of yourself. Choose <strong>Upload Photo</strong> to select from your device or <strong>Use Camera</strong> to take a live selfie.
+                  </p>
+
                   <div className="kyc-upload-area">
                     <input
                       ref={photoGalleryRef}
@@ -496,14 +507,44 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
                       onChange={(e) => handleFileSelect(e, 'photo')}
                       style={{ display: 'none' }}
                     />
+
                     {livePhotoPreview ? (
                       <div className="kyc-upload-preview kyc-upload-preview-round">
-                        <img src={livePhotoPreview} alt="Live Photo" />
+                        <img src={livePhotoPreview} alt="Verification Selfie" />
+                        <div className="kyc-photo-badge-wrap">
+                          {photoSource === 'camera' ? (
+                            <span className="kyc-source-badge kyc-badge-camera">
+                              &#128247; Captured with Camera
+                            </span>
+                          ) : (
+                            <span className="kyc-source-badge kyc-badge-upload">
+                              &#128193; Uploaded from Device
+                            </span>
+                          )}
+                        </div>
                         <div className="kyc-upload-actions">
-                          <button type="button" className="kyc-btn-icon" onClick={() => photoGalleryRef.current?.click()}>
-                            Replace
+                          <button
+                            type="button"
+                            className="kyc-btn-icon"
+                            onClick={handleCaptureLivePhoto}
+                            title="Take new selfie with camera"
+                          >
+                            Retake Selfie
                           </button>
-                          <button type="button" className="kyc-btn-icon kyc-btn-danger" onClick={() => handleRemoveDocument('photo')}>
+                          <button
+                            type="button"
+                            className="kyc-btn-icon"
+                            onClick={() => photoGalleryRef.current?.click()}
+                            title="Select different photo from device"
+                          >
+                            Upload Different
+                          </button>
+                          <button
+                            type="button"
+                            className="kyc-btn-icon kyc-btn-danger"
+                            onClick={() => handleRemoveDocument('photo')}
+                            title="Remove photo"
+                          >
                             Remove
                           </button>
                         </div>
@@ -515,36 +556,78 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
                           className="kyc-upload-trigger"
                           onClick={() => photoGalleryRef.current?.click()}
                           disabled={uploadingPhoto}
+                          id="btn-kyc-upload-photo"
                         >
                           {uploadingPhoto ? (
                             <span>Processing...</span>
                           ) : (
                             <>
-                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
                               </svg>
-                              <span>Upload Photo</span>
+                              <span className="kyc-trigger-title">Upload Photo</span>
+                              <small className="kyc-trigger-subtitle">Select an existing photo from your device</small>
                             </>
                           )}
                         </button>
+
                         <button
                           type="button"
                           className="kyc-upload-trigger kyc-camera-btn"
                           onClick={handleCaptureLivePhoto}
+                          id="btn-kyc-use-camera"
                         >
-                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" />
                           </svg>
-                          <span>Use Camera</span>
+                          <span className="kyc-trigger-title">Use Camera</span>
+                          <small className="kyc-trigger-subtitle">Take a new selfie using your camera</small>
                         </button>
                       </div>
                     )}
                   </div>
                 </div>
 
+                <div className="kyc-checklist-card">
+                  <div className="kyc-checklist-header">
+                    <strong>Verification Checklist</strong>
+                  </div>
+                  <div className="kyc-checklist-items">
+                    <div className={`kyc-checklist-row ${ninNumber.length === 11 ? 'is-valid' : 'is-pending'}`}>
+                      <span className="checklist-bullet">{ninNumber.length === 11 ? '✓' : '○'}</span>
+                      <span className="checklist-label">11-digit NIN</span>
+                      <span className="checklist-val">{ninNumber.length === 11 ? 'Valid' : '11 digits required'}</span>
+                    </div>
+
+                    <div className={`kyc-checklist-row ${nameOnNin.trim().length >= 3 ? 'is-valid' : 'is-pending'}`}>
+                      <span className="checklist-bullet">{nameOnNin.trim().length >= 3 ? '✓' : '○'}</span>
+                      <span className="checklist-label">Name on NIN</span>
+                      <span className="checklist-val">{nameOnNin.trim().length >= 3 ? 'Provided' : 'Required'}</span>
+                    </div>
+
+                    <div className={`kyc-checklist-row ${ninSlipImage ? 'is-valid' : 'is-pending'}`}>
+                      <span className="checklist-bullet">{ninSlipImage ? '✓' : '○'}</span>
+                      <span className="checklist-label">NIN Slip Photo</span>
+                      <span className="checklist-val">{ninSlipImage ? 'Uploaded' : 'Required'}</span>
+                    </div>
+
+                    <div className={`kyc-checklist-row ${livePhoto ? 'is-valid' : 'is-pending'}`}>
+                      <span className="checklist-bullet">{livePhoto ? '✓' : '○'}</span>
+                      <span className="checklist-label">Selfie Photo</span>
+                      <span className="checklist-val">
+                        {livePhoto
+                          ? photoSource === 'camera'
+                            ? 'Captured via Camera'
+                            : 'Uploaded from Device'
+                          : 'Required'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="kyc-step-actions">
                   <button className="kyc-btn kyc-btn-secondary" onClick={handlePrevStep}>Back</button>
-                  <button className="kyc-btn kyc-btn-primary" onClick={handleNextStep} disabled={!canProceedToSubmit}>
+                  <button className="kyc-btn kyc-btn-primary" onClick={handleNextStep} disabled={!canProceedToSubmit} id="btn-kyc-doc-next">
                     Next
                   </button>
                 </div>
@@ -597,7 +680,13 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
                   </div>
                   <div className="kyc-review-row">
                     <span>Live Photo</span>
-                    <span>{livePhoto ? 'Uploaded' : 'Missing'}</span>
+                    <span>
+                      {livePhoto
+                        ? photoSource === 'camera'
+                          ? 'Captured (Camera Selfie)'
+                          : 'Uploaded (From Device)'
+                        : 'Missing'}
+                    </span>
                   </div>
                   {additionalInfo && (
                     <div className="kyc-review-row">
@@ -619,14 +708,18 @@ export default function KycVerification({ isOpen, onClose, initialTab }) {
                 </div>
               </div>
             )}
-           </div>
+          </div>
         )}
       </div>
 
       {cameraOpen && (
         <div className="kyc-overlay" style={{ zIndex: 2000 }} onClick={(e) => e.target === e.currentTarget && handleCameraCancel()}>
-          <div className="kyc-modal" style={{ maxWidth: 440, maxHeight: '90vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
-            <CameraCapture onCapture={handleCameraCapture} onCancel={handleCameraCancel} />
+          <div className="kyc-modal kyc-modal-camera" onClick={(e) => e.stopPropagation()}>
+            <CameraCapture
+              onCapture={handleCameraCapture}
+              onCancel={handleCameraCancel}
+              onSwitchToUpload={handleSwitchToUpload}
+            />
           </div>
         </div>
       )}

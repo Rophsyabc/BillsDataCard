@@ -169,6 +169,7 @@ db.exec(`
     additionalInfo TEXT DEFAULT '',
     adminNote TEXT DEFAULT '',
     reviewedBy TEXT DEFAULT '',
+    photoSource TEXT DEFAULT 'camera',
     createdAt TEXT DEFAULT (datetime('now')),
     updatedAt TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
@@ -176,6 +177,26 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_kyc_jobs_user ON kyc_jobs(userId);
   CREATE INDEX IF NOT EXISTS idx_kyc_jobs_status ON kyc_jobs(status);
 `);
+
+// Safe migration for existing databases
+try {
+  db.exec("ALTER TABLE kyc_jobs ADD COLUMN photoSource TEXT DEFAULT 'camera'");
+} catch {}
+
+const userMigrations = [
+  "ALTER TABLE users ADD COLUMN phoneVerified INTEGER DEFAULT 0",
+  "ALTER TABLE users ADD COLUMN kycStatus TEXT DEFAULT 'none'",
+  "ALTER TABLE users ADD COLUMN kycType TEXT DEFAULT ''",
+  "ALTER TABLE users ADD COLUMN kycDocument TEXT DEFAULT ''",
+  "ALTER TABLE users ADD COLUMN bvn TEXT DEFAULT ''",
+];
+for (const sql of userMigrations) {
+  try {
+    db.exec(sql);
+  } catch {}
+}
+
+
 
 // Seed default settings
 const defaultSettings = [
