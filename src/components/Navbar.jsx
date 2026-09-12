@@ -1,10 +1,13 @@
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useTheme } from '../context/ThemeContext';
+import { useKyc } from '../context/KycContext';
+import ProfileAvatar from './ProfileAvatar';
 
 export default function Navbar() {
   const { balance, user, logout } = useApp();
   const { theme, toggleTheme } = useTheme();
+  const { openKyc } = useKyc();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -34,6 +37,7 @@ export default function Navbar() {
             </svg>
           )}
         </button>
+        <ProfileAvatar size={36} onClick={openKyc} />
         <button className="btn-logout" onClick={handleLogout}>Logout</button>
       </div>
     </header>

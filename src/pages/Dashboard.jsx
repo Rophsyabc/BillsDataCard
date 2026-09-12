@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/api';
 import { useApp } from '../context/AppContext';
+import { useKyc } from '../context/KycContext';
+import ProfileAvatar from '../components/ProfileAvatar';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 const serviceLinks = [
   { path: '/wallet', label: 'Transfer', color: '#6366F1', icon: (
@@ -68,13 +72,6 @@ function formatTxnDate(dateStr) {
   return d.toLocaleDateString('en-NG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function getInitials(name) {
-  if (!name) return 'U';
-  const parts = name.trim().split(' ').filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return parts[0][0].toUpperCase();
-}
-
 function getGreeting() {
   const h = new Date().getHours();
   if (h < 12) return 'Good morning';
@@ -86,7 +83,9 @@ export default function Dashboard() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [balanceVisible, setBalanceVisible] = useState(true);
-  const { balance, user } = useApp();
+  const [kycStatus, setKycStatus] = useState(null);
+  const { balance, user, token } = useApp();
+  const { openKyc } = useKyc();
 
   useEffect(() => {
     api.getTransactions().then((res) => {
@@ -95,19 +94,72 @@ export default function Dashboard() {
     }).catch(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (token) fetchKycStatus();
+  }, [token]);
+
+  const fetchKycStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/kyc/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) setKycStatus(data.data);
+    } catch (e) {
+      // Silent fail
+    }
+  };
+
   const userName = user?.name || 'User';
   const userPhone = user?.phone || user?.id || '';
+  const status = kycStatus?.status || 'none';
+  const showKycBanner = status !== 'verified' && status !== 'pending';
 
   return (
     <div className="dashboard">
       <div className="dash-greeting">
-        <div className="greeting-avatar">{getInitials(userName)}</div>
+        <ProfileAvatar size={48} onClick={openKyc} />
         <div className="greeting-text">
           <span className="greeting-label">{getGreeting()},</span>
           <span className="greeting-name">{userName}</span>
         </div>
         <span className="greeting-badge">{user?.role || 'User'}</span>
       </div>
+
+      {showKycBanner && (
+        <div className={`kyc-dashboard-banner kyc-banner-${status === 'none' ? 'alert' : status === 'rejected' || status === 'resubmission_required' ? 'error' : 'warning'}`}>
+          <div className="kyc-banner-content">
+            <div className="kyc-banner-icon">
+              {status === 'rejected' || status === 'resubmission_required' ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+              )}
+            </div>
+            <div className="kyc-banner-text">
+              <strong>
+                {status === 'rejected' ? 'Verification Needs Attention' :
+                 status === 'resubmission_required' ? 'Please Resubmit Documents' :
+                 'Complete Your Verification'}
+              </strong>
+              <p>
+                {status === 'rejected'
+                  ? (kycStatus?.latestJob?.adminNote || 'Your verification was rejected. Please review and resubmit.')
+                  : status === 'resubmission_required'
+                  ? (kycStatus?.latestJob?.adminNote || 'Please correct the requested information and resubmit.')
+                  : 'Verify your identity to unlock all PayBills features and enable withdrawals.'}
+              </p>
+            </div>
+            <button className="kyc-banner-btn" onClick={openKyc}>
+              {status === 'rejected' || status === 'resubmission_required' ? 'Resubmit' : 'Complete KYC'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="balance-card">
         <div className="balance-header">

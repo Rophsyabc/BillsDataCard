@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { KycProvider } from './context/KycContext';
 import { ToastProvider } from './components/Toast';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -32,54 +33,56 @@ function App() {
   return (
     <AppProvider>
       <ThemeProvider>
-        <ToastProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/signup" element={<Signup />} />
-              <Route path="/verify-email" element={<VerifyEmail />} />
-              <Route
-                path="/admin/*"
-                element={
-                  <ProtectedRoute adminOnly>
-                    <Routes>
-                      <Route path="/" element={<AdminDashboard />} />
-                      <Route path="/users" element={<AdminUsers />} />
-                      <Route path="/transactions" element={<AdminTransactions />} />
-                      <Route path="/plans" element={<AdminPlans />} />
-                      <Route path="/giftcards" element={<AdminGiftCards />} />
-                      <Route path="/settings" element={<AdminSettings />} />
-                    </Routes>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/*"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
+        <KycProvider>
+          <ToastProvider>
+            <BrowserRouter>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/signup" element={<Signup />} />
+                <Route path="/verify-email" element={<VerifyEmail />} />
+                <Route
+                  path="/admin/*"
+                  element={
+                    <ProtectedRoute adminOnly>
                       <Routes>
-                        <Route path="/" element={<Dashboard />} />
-                        <Route path="/wallet" element={<Wallet />} />
-                        <Route path="/airtime" element={<Airtime />} />
-                        <Route path="/data" element={<Data />} />
-                        <Route path="/electricity" element={<Electricity />} />
-                        <Route path="/tv" element={<TvSubscription />} />
-                        <Route path="/gift-cards" element={<GiftCards />} />
-                        <Route path="/betting" element={<Betting />} />
-                        <Route path="/history" element={<History />} />
-                        <Route path="/receipt" element={<Receipt />} />
-                        <Route path="/transaction/:id" element={<TransactionDetails />} />
-                        <Route path="/profile" element={<Profile />} />
-                        <Route path="/analytics" element={<Analytics />} />
+                        <Route path="/" element={<AdminDashboard />} />
+                        <Route path="/users" element={<AdminUsers />} />
+                        <Route path="/transactions" element={<AdminTransactions />} />
+                        <Route path="/plans" element={<AdminPlans />} />
+                        <Route path="/giftcards" element={<AdminGiftCards />} />
+                        <Route path="/settings" element={<AdminSettings />} />
                       </Routes>
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
-            </Routes>
-          </BrowserRouter>
-        </ToastProvider>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/*"
+                  element={
+                    <ProtectedRoute>
+                      <Layout>
+                        <Routes>
+                          <Route path="/" element={<Dashboard />} />
+                          <Route path="/wallet" element={<Wallet />} />
+                          <Route path="/airtime" element={<Airtime />} />
+                          <Route path="/data" element={<Data />} />
+                          <Route path="/electricity" element={<Electricity />} />
+                          <Route path="/tv" element={<TvSubscription />} />
+                          <Route path="/gift-cards" element={<GiftCards />} />
+                          <Route path="/betting" element={<Betting />} />
+                          <Route path="/history" element={<History />} />
+                          <Route path="/receipt" element={<Receipt />} />
+                          <Route path="/transaction/:id" element={<TransactionDetails />} />
+                          <Route path="/profile" element={<Profile />} />
+                          <Route path="/analytics" element={<Analytics />} />
+                        </Routes>
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+              </Routes>
+            </BrowserRouter>
+          </ToastProvider>
+        </KycProvider>
       </ThemeProvider>
     </AppProvider>
   );

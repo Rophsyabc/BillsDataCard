@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import { KycStatusBadge } from '../components/ProfileAvatar';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -19,14 +20,6 @@ export default function Profile() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [kycStatus, setKycStatus] = useState(null);
-  const [nameOnNin, setNameOnNin] = useState('');
-  const [ninNumber, setNinNumber] = useState('');
-  const [ninSlipImage, setNinSlipImage] = useState(null);
-  const [ninSlipPreview, setNinSlipPreview] = useState(null);
-  const [livePhoto, setLivePhoto] = useState(null);
-  const [livePhotoPreview, setLivePhotoPreview] = useState(null);
-  const [phoneOtp, setPhoneOtp] = useState('');
-  const [phoneSent, setPhoneSent] = useState(false);
 
   useEffect(() => {
     fetchSessions();
@@ -43,112 +36,6 @@ export default function Profile() {
     } catch (e) {
       console.error('Failed to fetch KYC status:', e);
     }
-  };
-
-  const handleFileSelect = (e, type) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setResult({ success: false, message: 'File must be under 5MB' });
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      if (type === 'nin') {
-        setNinSlipImage(ev.target.result);
-        setNinSlipPreview(ev.target.result);
-      } else {
-        setLivePhoto(ev.target.result);
-        setLivePhotoPreview(ev.target.result);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleCaptureLivePhoto = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } });
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      video.play();
-      await new Promise(r => setTimeout(r, 1500));
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d').drawImage(video, 0, 0);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-      stream.getTracks().forEach(t => t.stop());
-      setLivePhoto(dataUrl);
-      setLivePhotoPreview(dataUrl);
-    } catch {
-      setResult({ success: false, message: 'Camera access denied. Please use file upload instead.' });
-    }
-  };
-
-  const handleSubmitKyc = async () => {
-    if (!/^\d{11}$/.test(ninNumber)) { setResult({ success: false, message: 'NIN must be 11 digits' }); return; }
-    if (!nameOnNin.trim()) { setResult({ success: false, message: 'Enter your name as it appears on NIN' }); return; }
-    if (!ninSlipImage) { setResult({ success: false, message: 'Upload your NIN slip' }); return; }
-    if (!livePhoto) { setResult({ success: false, message: 'Upload or capture your live photo' }); return; }
-
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/kyc/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ninNumber, nameOnNin: nameOnNin.trim(), ninSlipImage, livePhoto }),
-      });
-      const data = await res.json();
-      setResult(data);
-      if (data.success) {
-        fetchKycStatus();
-        setNinNumber('');
-        setNameOnNin('');
-        setNinSlipImage(null);
-        setNinSlipPreview(null);
-        setLivePhoto(null);
-        setLivePhotoPreview(null);
-      }
-    } catch {
-      setResult({ success: false, message: 'Failed to submit KYC' });
-    }
-    setLoading(false);
-  };
-
-  const handleSendPhoneOtp = async () => {
-    if (!phone) { setResult({ success: false, message: 'Enter your phone number first' }); return; }
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/kyc/send-phone-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ phone }),
-      });
-      const data = await res.json();
-      setResult(data);
-      if (data.success) setPhoneSent(true);
-    } catch {
-      setResult({ success: false, message: 'Failed to send OTP' });
-    }
-    setLoading(false);
-  };
-
-  const handleVerifyPhone = async () => {
-    if (!/^\d{6}$/.test(phoneOtp)) { setResult({ success: false, message: 'Enter 6-digit OTP' }); return; }
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/kyc/verify-phone`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ phone, otp: phoneOtp }),
-      });
-      const data = await res.json();
-      setResult(data);
-      if (data.success) fetchKycStatus();
-    } catch {
-      setResult({ success: false, message: 'Failed to verify phone' });
-    }
-    setLoading(false);
   };
 
   const fetchSessions = async () => {
@@ -313,7 +200,7 @@ export default function Profile() {
         <button className={`wallet-tab ${activeTab === 'kyc' ? 'active' : ''}`} onClick={() => setActiveTab('kyc')}>KYC</button>
         <button className={`wallet-tab ${activeTab === 'referral' ? 'active' : ''}`} onClick={() => setActiveTab('referral')}>Referral</button>
         {user?.role === 'admin' && (
-          <button className="wallet-tab" onClick={() => window.location.href = '/admin'}>⚙️ Admin</button>
+          <button className="wallet-tab" onClick={() => window.location.href = '/admin'}>Admin</button>
         )}
       </div>
 
@@ -326,7 +213,7 @@ export default function Profile() {
           <div className="form-group">
             <label>Email</label>
             <input type="email" value={user?.email || ''} disabled />
-            <small className="form-hint">{user?.emailVerified ? '✓ Verified' : '⚠ Not verified'}</small>
+            <small className="form-hint">{user?.emailVerified ? 'Verified' : 'Not verified'}</small>
           </div>
           <div className="form-group">
             <label>Phone Number</label>
@@ -388,7 +275,7 @@ export default function Profile() {
           <h3 style={{ marginBottom: '16px' }}>Two-Factor Authentication (2FA)</h3>
           {user?.twoFactorEnabled ? (
             <div>
-              <p style={{ color: 'var(--success)', marginBottom: '12px' }}>✓ 2FA is enabled</p>
+              <p style={{ color: 'var(--success)', marginBottom: '12px' }}>2FA is enabled</p>
               <button className="btn-secondary" onClick={handleDisable2FA} disabled={loading}>Disable 2FA</button>
             </div>
           ) : twoFASetup ? (
@@ -435,13 +322,7 @@ export default function Profile() {
             <div style={{ marginBottom: '16px', padding: '12px', background: 'var(--bg)', borderRadius: '10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Verification Status</span>
-                <span style={{
-                  padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600,
-                  background: kycStatus.status === 'verified' ? 'rgba(16,185,129,0.1)' : kycStatus.status === 'pending' ? 'rgba(245,158,11,0.1)' : kycStatus.status === 'rejected' ? 'rgba(239,68,68,0.1)' : 'rgba(100,116,139,0.1)',
-                  color: kycStatus.status === 'verified' ? 'var(--success)' : kycStatus.status === 'pending' ? 'var(--warning)' : kycStatus.status === 'rejected' ? 'var(--error)' : 'var(--text-secondary)',
-                }}>
-                  {kycStatus.status === 'verified' ? 'Verified' : kycStatus.status === 'pending' ? 'Under Review' : kycStatus.status === 'rejected' ? 'Rejected' : 'Not Started'}
-                </span>
+                <KycStatusBadge status={kycStatus.status} size="small" />
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                 <span>Email: {kycStatus.emailVerified ? 'Verified' : 'Not Verified'}</span>
@@ -455,109 +336,32 @@ export default function Profile() {
             </div>
           )}
 
-          {/* Phone Verification */}
-          {kycStatus && !kycStatus.phoneVerified && (
-            <div style={{ marginBottom: '16px', padding: '14px', background: 'var(--bg)', borderRadius: '10px' }}>
-              <h4 style={{ marginBottom: '10px', fontSize: '0.9rem' }}>Step 1: Verify Phone</h4>
-              <div className="form-group" style={{ marginBottom: '10px' }}>
-                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="08012345678" maxLength={11} style={{ width: '100%' }} />
-              </div>
-              {!phoneSent ? (
-                <button className="btn-primary" onClick={handleSendPhoneOtp} disabled={loading || !phone} style={{ width: '100%' }}>
-                  {loading ? 'Sending...' : 'Send OTP'}
-                </button>
-              ) : (
-                <div>
-                  <div className="form-group" style={{ marginBottom: '10px' }}>
-                    <input type="text" value={phoneOtp} onChange={(e) => setPhoneOtp(e.target.value)} placeholder="6-digit OTP" maxLength={6} style={{ width: '100%' }} />
-                  </div>
-                  <button className="btn-primary" onClick={handleVerifyPhone} disabled={loading || phoneOtp.length !== 6} style={{ width: '100%' }}>
-                    {loading ? 'Verifying...' : 'Verify Phone'}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+          <div style={{ padding: '20px', background: 'var(--bg)', borderRadius: '10px', textAlign: 'center' }}>
+            <p style={{ marginBottom: '12px', fontSize: '0.9rem' }}>
+              For the best verification experience, use the verification button in the navigation bar or dashboard banner.
+            </p>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Click your profile picture in the top navigation or the verification banner on the dashboard to start the full KYC process.
+            </p>
+          </div>
 
-          {/* Step 2: KYC Submission */}
-          {kycStatus && kycStatus.status !== 'verified' && kycStatus.status !== 'pending' && (
-            <div style={{ padding: '14px', background: 'var(--bg)', borderRadius: '10px' }}>
-              <h4 style={{ marginBottom: '10px', fontSize: '0.9rem' }}>Step 2: Upload Documents</h4>
-
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: '0.8rem' }}>NIN Number</label>
-                <input type="text" value={ninNumber} onChange={(e) => setNinNumber(e.target.value.replace(/\D/g, ''))} placeholder="11-digit NIN" maxLength={11} style={{ width: '100%', fontFamily: 'monospace', letterSpacing: '2px' }} />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: '0.8rem' }}>Name on NIN (must match signup name)</label>
-                <input type="text" value={nameOnNin} onChange={(e) => setNameOnNin(e.target.value)} placeholder="Full name as on NIN slip" style={{ width: '100%' }} />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: '0.8rem' }}>NIN Slip Photo</label>
-                <input type="file" accept="image/*" onChange={(e) => handleFileSelect(e, 'nin')} style={{ width: '100%', fontSize: '0.85rem' }} />
-                {ninSlipPreview && (
-                  <div style={{ marginTop: '8px' }}>
-                    <img src={ninSlipPreview} alt="NIN Slip" style={{ width: '100%', maxHeight: '200px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border)' }} />
-                  </div>
-                )}
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: '0.8rem' }}>Live Photo (selfie)</label>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                  <input type="file" accept="image/*" capture="user" onChange={(e) => handleFileSelect(e, 'photo')} style={{ flex: 1, fontSize: '0.85rem' }} />
-                  <button type="button" className="btn-secondary" onClick={handleCaptureLivePhoto} style={{ fontSize: '0.8rem', padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                    Use Camera
-                  </button>
-                </div>
-                {livePhotoPreview && (
-                  <div style={{ marginTop: '8px' }}>
-                    <img src={livePhotoPreview} alt="Live Photo" style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '50%', border: '2px solid var(--primary)' }} />
-                  </div>
-                )}
-              </div>
-
-              <button className="btn-primary" onClick={handleSubmitKyc} disabled={loading || !ninNumber || !nameOnNin || !ninSlipImage || !livePhoto} style={{ width: '100%' }}>
-                {loading ? 'Submitting...' : 'Submit for Verification'}
-              </button>
-            </div>
-          )}
-
-          {/* Pending */}
-          {kycStatus?.status === 'pending' && (
-            <div style={{ padding: '20px', background: 'rgba(245,158,11,0.1)', borderRadius: '10px', textAlign: 'center' }}>
-              <div style={{ fontSize: '2rem', marginBottom: '8px' }}>&#9203;</div>
-              <p style={{ color: 'var(--warning)', fontWeight: 600 }}>Under Review</p>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                Your KYC is being reviewed. This usually takes 24-48 hours.
-              </p>
-            </div>
-          )}
-
-          {/* Verified */}
-          {kycStatus?.status === 'verified' && (
-            <div style={{ padding: '20px', background: 'rgba(16,185,129,0.1)', borderRadius: '10px', textAlign: 'center' }}>
-              <div style={{ fontSize: '2rem', marginBottom: '8px' }}>&#10003;</div>
-              <p style={{ color: 'var(--success)', fontWeight: 600 }}>Identity Verified</p>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                Your identity has been verified. You have full access to all features.
-              </p>
-            </div>
-          )}
-
-          {/* Rejected */}
           {kycStatus?.status === 'rejected' && (
-            <div style={{ padding: '20px', background: 'rgba(239,68,68,0.1)', borderRadius: '10px', textAlign: 'center' }}>
+            <div style={{ marginTop: '16px', padding: '20px', background: 'rgba(239,68,68,0.1)', borderRadius: '10px', textAlign: 'center' }}>
               <div style={{ fontSize: '2rem', marginBottom: '8px' }}>&#10007;</div>
               <p style={{ color: 'var(--error)', fontWeight: 600 }}>Verification Rejected</p>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', marginBottom: '12px' }}>
                 {kycStatus.latestJob?.adminNote || 'Your verification was rejected. Please try again with clear photos.'}
               </p>
-              <button className="btn-primary" onClick={() => fetchKycStatus()} style={{ width: '100%' }}>
-                Try Again
-              </button>
+            </div>
+          )}
+
+          {kycStatus?.status === 'resubmission_required' && (
+            <div style={{ marginTop: '16px', padding: '20px', background: 'rgba(239,68,68,0.1)', borderRadius: '10px', textAlign: 'center' }}>
+              <div style={{ fontSize: '2rem', marginBottom: '8px' }}>&#9888;</div>
+              <p style={{ color: 'var(--error)', fontWeight: 600 }}>Resubmission Required</p>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', marginBottom: '12px' }}>
+                {kycStatus.latestJob?.adminNote || 'Please correct the requested information and submit your verification again.'}
+              </p>
             </div>
           )}
         </div>
