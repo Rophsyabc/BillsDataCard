@@ -85,6 +85,7 @@ router.post('/signup', signupLimiter, async (req, res) => {
         user: { id: userId, name, email, phone: phone || '', emailVerified: false, referralCode: userReferralCode, role: userCount === 1 ? 'admin' : 'user', status: 'active' },
         token,
         refreshToken,
+        verificationToken,
       },
     });
   } catch (err) {

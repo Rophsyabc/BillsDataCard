@@ -45,8 +45,14 @@ export default function Signup() {
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
+      setLoading(false);
+      return;
+    }
+
+    if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
+      setError('Password must contain uppercase, lowercase, and a number');
       setLoading(false);
       return;
     }
@@ -65,7 +71,8 @@ export default function Signup() {
       } else {
         setError(data.message || 'Signup failed');
       }
-    } catch {
+    } catch (err) {
+      console.error('[signup] Error:', err);
       setError('Network error. Please try again.');
     } finally {
       setLoading(false);
@@ -203,7 +210,7 @@ export default function Signup() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                minLength={6}
+                minLength={8}
               />
               <button type="button" className="eye-toggle" onClick={() => setShowPassword(!showPassword)}>
                 {showPassword ? (
