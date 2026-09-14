@@ -326,7 +326,7 @@ export const api = {
     }
     const res = await callBackend('/api/data/buy', {
       method: 'POST',
-      body: JSON.stringify({ network, phone, plan, userId: getUserId() }),
+      body: JSON.stringify({ network, phone, planId: plan.id, userId: getUserId() }),
     });
     if (res?.success) {
       const net = networks.find((n) => n.id === network);
