@@ -27,6 +27,8 @@ import AdminTransactions from './pages/AdminTransactions';
 import AdminPlans from './pages/AdminPlans';
 import AdminGiftCards from './pages/AdminGiftCards';
 import AdminSettings from './pages/AdminSettings';
+import Services from './pages/Services';
+import Education from './pages/Education';
 import './App.css';
 
 function App() {
@@ -63,12 +65,14 @@ function App() {
                         <Routes>
                           <Route path="/" element={<Dashboard />} />
                           <Route path="/wallet" element={<Wallet />} />
+                          <Route path="/services" element={<Services />} />
                           <Route path="/airtime" element={<Airtime />} />
                           <Route path="/data" element={<Data />} />
                           <Route path="/electricity" element={<Electricity />} />
                           <Route path="/tv" element={<TvSubscription />} />
                           <Route path="/gift-cards" element={<GiftCards />} />
                           <Route path="/betting" element={<Betting />} />
+                          <Route path="/education" element={<Education />} />
                           <Route path="/history" element={<History />} />
                           <Route path="/receipt" element={<Receipt />} />
                           <Route path="/transaction/:id" element={<TransactionDetails />} />

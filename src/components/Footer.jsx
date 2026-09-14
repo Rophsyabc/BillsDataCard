@@ -13,7 +13,7 @@ const footerItems = [
       <line x1="1" y1="10" x2="23" y2="10"/>
     </svg>
   )},
-  { path: '/airtime', label: 'Services', icon: (
+  { path: '/services', label: 'Services', icon: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
       <rect x="3" y="3" width="7" height="7" rx="1"/>
       <rect x="14" y="3" width="7" height="7" rx="1"/>
