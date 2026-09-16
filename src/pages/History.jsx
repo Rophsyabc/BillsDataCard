@@ -4,6 +4,11 @@ import { useApp } from '../context/AppContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
+function isMoneyIn(type) {
+  const t = (type || '').toLowerCase();
+  return t.includes('wallet') || t.includes('fund') || t.includes('refund') || t.includes('cashback') || t.includes('referral') || t.includes('reversal');
+}
+
 export default function History() {
   const { token } = useApp();
   const [transactions, setTransactions] = useState([]);
@@ -28,7 +33,7 @@ export default function History() {
       if (dateFrom) params.set('from', dateFrom);
       if (dateTo) params.set('to', dateTo);
 
-      const res = await fetch(`${API_BASE}/api/user/history?${params}`, {
+      const res = await fetch(`${API_BASE}/api/user/?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -86,18 +91,28 @@ export default function History() {
               </tr>
             </thead>
             <tbody>
-              {transactions.map((txn) => (
-                <tr key={txn.id}>
-                  <td className="ref">
-                    <Link to={`/transaction/${txn.id}`} className="txn-link">{txn.id}</Link>
-                  </td>
-                  <td><span className="type-badge">{txn.type}</span></td>
-                  <td>{txn.service}</td>
-                  <td className="amount">₦{txn.amount.toLocaleString()}</td>
-                  <td><span className={`status-badge status-${txn.status}`}>{txn.status}</span></td>
-                  <td className="date">{new Date(txn.createdAt).toLocaleDateString()}</td>
-                </tr>
-              ))}
+              {transactions.map((txn) => {
+                const moneyIn = isMoneyIn(txn.type);
+                return (
+                  <tr key={txn.id}>
+                    <td className="ref">
+                      <Link to={`/transaction/${txn.id}`} className="txn-link">{txn.id}</Link>
+                    </td>
+                    <td><span className="type-badge">{txn.type}</span></td>
+                    <td>
+                      {txn.service}
+                      <span className={`txn-direction-inline ${moneyIn ? 'money-in' : 'money-out'}`}>
+                        {moneyIn ? '↑ In' : '↓ Out'}
+                      </span>
+                    </td>
+                    <td className={`amount ${moneyIn ? 'txn-money-in' : 'txn-money-out'}`}>
+                      {moneyIn ? '+' : '-'}₦{txn.amount.toLocaleString()}
+                    </td>
+                    <td><span className={`status-badge status-${txn.status}`}>{txn.status}</span></td>
+                    <td className="date">{new Date(txn.createdAt).toLocaleDateString()}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

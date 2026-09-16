@@ -30,6 +30,9 @@ const serviceLinks = [
   { path: '/receipt', label: 'Receipt', color: '#64748B', icon: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
   )},
+  { path: '/analytics', label: 'Analytics', color: '#6C63FF', icon: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M6 9l6 6 6-6"/><path d="M12 3l7 4v10l-7 4-7-4V7z"/></svg>
+  )},
 ];
 
 const txnTypeIcons = {
@@ -64,10 +67,26 @@ function getTxnColor(type) {
   return '#64748B';
 }
 
+function isMoneyIn(type) {
+  const t = (type || '').toLowerCase();
+  return t.includes('wallet') || t.includes('fund') || t.includes('refund') || t.includes('cashback') || t.includes('referral') || t.includes('reversal');
+}
+
+function getTxnDirectionLabel(type) {
+  return isMoneyIn(type) ? 'Received' : 'Spent';
+}
+
 function formatTxnDate(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr);
   return d.toLocaleDateString('en-NG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatTxnAmount(amount, type, status) {
+  if (status === 'failed') return `₦${amount?.toLocaleString()}`;
+  if (status === 'pending') return `₦${amount?.toLocaleString()}`;
+  const prefix = isMoneyIn(type) ? '+' : '-';
+  return `${prefix}₦${amount?.toLocaleString()}`;
 }
 
 function getGreeting() {
@@ -158,7 +177,7 @@ export default function Dashboard() {
       <div className="services-section">
         <div className="section-header-row">
           <span className="section-title">Services</span>
-          <span className="section-edit">Edit</span>
+          <Link to="/services" className="section-edit">View All</Link>
         </div>
         <div className="services-grid">
           {serviceLinks.map((service) => (
@@ -175,9 +194,10 @@ export default function Dashboard() {
       <div className="rewards-section">
         <div className="section-header-row">
           <span className="section-title">Rewards</span>
+          <Link to="/rewards" className="section-edit">View All</Link>
         </div>
         <div className="rewards-grid">
-          <div className="reward-card">
+          <Link to="/rewards" className="reward-card" style={{ textDecoration: 'none', color: 'inherit' }}>
             <div className="reward-icon" style={{ background: 'rgba(0,201,167,0.15)' }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="#00C9A7">
                 <circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
@@ -187,8 +207,8 @@ export default function Dashboard() {
               <span className="reward-title">Cashback</span>
               <span className="reward-subtitle">Earn on every bill</span>
             </div>
-          </div>
-          <div className="reward-card">
+          </Link>
+          <Link to="/rewards" className="reward-card" style={{ textDecoration: 'none', color: 'inherit' }}>
             <div className="reward-icon" style={{ background: 'rgba(16,185,129,0.15)' }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="#10B981">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
@@ -198,7 +218,7 @@ export default function Dashboard() {
               <span className="reward-title">Referrals</span>
               <span className="reward-subtitle">Invite & earn</span>
             </div>
-          </div>
+          </Link>
         </div>
       </div>
 
@@ -210,25 +230,38 @@ export default function Dashboard() {
         {loading ? (
           <div className="loading-state">Loading transactions...</div>
         ) : transactions.length === 0 ? (
-          <div className="empty-state">No transactions yet</div>
+          <div className="empty-state">
+            <p>No transactions yet</p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 16, flexWrap: 'wrap' }}>
+              <Link to="/airtime" className="btn-secondary" style={{ width: 'auto', padding: '10px 20px', marginBottom: 0 }}>Buy Airtime</Link>
+              <Link to="/data" className="btn-secondary" style={{ width: 'auto', padding: '10px 20px', marginBottom: 0 }}>Buy Data</Link>
+              <Link to="/wallet" className="btn-secondary" style={{ width: 'auto', padding: '10px 20px', marginBottom: 0 }}>Fund Wallet</Link>
+            </div>
+          </div>
         ) : (
           <div className="transactions-list">
-            {transactions.map((txn) => (
-              <Link key={txn.id} to={`/transaction/${txn.id}`} className="txn-item">
-                <div className="txn-icon" style={{ background: getTxnColor(txn.type) + '20', color: getTxnColor(txn.type) }}>
-                  {getTxnIcon(txn.type)}
-                </div>
-                <div className="txn-info">
-                  <span className="txn-name">{txn.service || txn.type}</span>
-                  <span className="txn-date">{formatTxnDate(txn.date)}</span>
-                  {txn.status === 'pending' && <span className="txn-status-badge status-pending">Pending</span>}
-                  {txn.status === 'failed' && <span className="txn-status-badge status-failed">Failed</span>}
-                </div>
-                <span className={`txn-amount ${txn.status === 'success' ? 'txn-success' : txn.status === 'pending' ? 'txn-pending' : 'txn-failed'}`}>
-                  ₦{txn.amount?.toLocaleString()}
-                </span>
-              </Link>
-            ))}
+            {transactions.map((txn) => {
+              const moneyIn = isMoneyIn(txn.type);
+              return (
+                <Link key={txn.id} to={`/transaction/${txn.id}`} className="txn-item">
+                  <div className="txn-icon" style={{ background: getTxnColor(txn.type) + '20', color: getTxnColor(txn.type) }}>
+                    {getTxnIcon(txn.type)}
+                  </div>
+                  <div className="txn-info">
+                    <span className="txn-name">{txn.service || txn.type}</span>
+                    <span className="txn-date">{formatTxnDate(txn.createdAt || txn.date)}</span>
+                    <span className={`txn-direction ${moneyIn ? 'money-in' : 'money-out'}`}>
+                      {getTxnDirectionLabel(txn.type)}
+                    </span>
+                    {txn.status === 'pending' && <span className="txn-status-badge status-pending">Pending</span>}
+                    {txn.status === 'failed' && <span className="txn-status-badge status-failed">Failed</span>}
+                  </div>
+                  <span className={`txn-amount ${moneyIn ? 'txn-money-in' : txn.status === 'success' ? 'txn-money-out' : txn.status === 'pending' ? 'txn-pending' : 'txn-failed'}`}>
+                    {formatTxnAmount(txn.amount, txn.type, txn.status)}
+                  </span>
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>

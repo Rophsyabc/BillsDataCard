@@ -21,6 +21,7 @@ import Signup from './pages/Signup';
 import VerifyEmail from './pages/VerifyEmail';
 import Profile from './pages/Profile';
 import Analytics from './pages/Analytics';
+import Rewards from './pages/Rewards';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminUsers from './pages/AdminUsers';
 import AdminTransactions from './pages/AdminTransactions';
@@ -78,6 +79,7 @@ function App() {
                           <Route path="/transaction/:id" element={<TransactionDetails />} />
                           <Route path="/profile" element={<Profile />} />
                           <Route path="/analytics" element={<Analytics />} />
+                          <Route path="/rewards" element={<Rewards />} />
                         </Routes>
                       </Layout>
                     </ProtectedRoute>

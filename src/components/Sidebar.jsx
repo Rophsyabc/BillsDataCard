@@ -13,6 +13,7 @@ const menuItems = [
   { path: '/betting', label: 'Betting Fund', icon: '⚽' },
   { path: '/education', label: 'Education', icon: '📚' },
   { path: '/analytics', label: 'Analytics', icon: '📊' },
+  { path: '/rewards', label: 'Rewards', icon: '🎁' },
   { path: '/history', label: 'History', icon: '📋' },
   { path: '/receipt', label: 'Receipt', icon: '🧾' },
   { path: '/profile', label: 'Profile', icon: '👤' },

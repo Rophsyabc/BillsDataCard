@@ -237,13 +237,3 @@ export const bettingPlatforms = [
   { id: '1xbet', name: '1xBet', logo: onexbetLogo, color: '#0D47A1' },
   { id: 'merrybet', name: 'MerryBet', logo: merrybetLogo, color: '#4CAF50' },
 ];
-
-export const mockTransactions = [
-  { id: 'TXN001', type: 'Airtime', service: 'MTN', amount: 500, phone: '08031234567', status: 'success', date: '2026-09-07 14:32' },
-  { id: 'TXN002', type: 'Data', service: 'Airtel - 2GB', amount: 1500, phone: '08031234567', status: 'success', date: '2026-09-06 10:15' },
-  { id: 'TXN003', type: 'Electricity', service: 'Ikeja Electric', amount: 5000, meter: '45678901234', status: 'success', date: '2026-09-05 09:20' },
-  { id: 'TXN004', type: 'TV', service: 'DStv Compact', amount: 9000, iuc: '7012345678', status: 'success', date: '2026-09-04 16:45' },
-  { id: 'TXN005', type: 'Gift Card', service: 'Amazon US', amount: 3200, status: 'pending', date: '2026-09-03 11:30' },
-  { id: 'TXN006', type: 'Betting', service: 'Bet9ja', amount: 2000, status: 'success', date: '2026-09-02 08:10' },
-  { id: 'TXN007', type: 'Wallet', service: 'Wallet Funding', amount: 10000, status: 'success', date: '2026-09-01 12:00' },
-];

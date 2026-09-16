@@ -42,8 +42,15 @@ export default function TransactionDetails() {
       success: '#10B981',
       pending: '#F59E0B',
       failed: '#EF4444',
+      reversed: '#6366F1',
+      cancelled: '#94A3B8',
     };
     return colors[status] || '#64748B';
+  };
+
+  const isMoneyIn = (type) => {
+    const t = (type || '').toLowerCase();
+    return t.includes('wallet') || t.includes('fund') || t.includes('refund') || t.includes('cashback') || t.includes('referral') || t.includes('reversal');
   };
 
   if (loading) {
@@ -118,7 +125,12 @@ export default function TransactionDetails() {
 
         <div className="txn-amount-display">
           <span className="txn-amount-label">Amount</span>
-          <span className="txn-amount-value">₦{transaction.amount?.toLocaleString()}</span>
+          <span className="txn-amount-value">
+            {isMoneyIn(transaction.type) ? '+' : '-'}₦{transaction.amount?.toLocaleString()}
+          </span>
+          <span className="txn-direction-label" style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: 4 }}>
+            {isMoneyIn(transaction.type) ? 'Money Received' : 'Money Spent'}
+          </span>
         </div>
 
         <div className="txn-details-body">

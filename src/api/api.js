@@ -7,7 +7,6 @@ import {
   tvProviders,
   giftCards,
   bettingPlatforms,
-  mockTransactions,
 } from './mockData';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
@@ -22,13 +21,6 @@ function getUserId() {
     return 'default';
   }
 }
-
-let transactions = [...mockTransactions];
-
-const addTransaction = (txn) => {
-  transactions.unshift(txn);
-  return txn;
-};
 
 // ── Backend API helper ──
 async function callBackend(path, options = {}) {
@@ -506,12 +498,9 @@ export const api = {
 
   // ── Wallet ──
   getBalance: async () => {
-    // Try backend first
     const res = await callBackend('/api/wallet');
     if (res?.success) return { success: true, data: res.data };
-    // Fallback
-    await simulateDelay(300);
-    return { success: true, data: { balance: 50000 } };
+    return { success: false, message: 'Failed to fetch balance' };
   },
 
   fundWallet: async ({ amount, method }) => {
@@ -520,26 +509,10 @@ export const api = {
       body: JSON.stringify({ amount, method, userId: getUserId() }),
     });
     if (res?.success) return res;
-
-    // Mock fallback
-    await simulateDelay(1500);
     if (!amount || amount < 100) {
       return { success: false, message: 'Minimum funding amount is ₦100' };
     }
-    const ref = `FUND${Date.now()}`;
-    addTransaction({
-      id: ref,
-      type: 'Wallet',
-      service: `Wallet Funding (${method})`,
-      amount,
-      status: 'success',
-      date: new Date().toISOString().replace('T', ' ').slice(0, 16),
-    });
-    return {
-      success: true,
-      message: 'Wallet funded successfully',
-      data: { reference: ref, amount, method, status: 'success' },
-    };
+    return { success: false, message: 'Wallet funding failed. Please try again.' };
   },
 
   transferWallet: async ({ recipient, amount, note }) => {
@@ -548,53 +521,25 @@ export const api = {
       body: JSON.stringify({ recipient, amount, note, userId: getUserId() }),
     });
     if (res?.success) return res;
-
-    // Mock fallback
-    await simulateDelay(1500);
     if (!recipient || !amount) {
       return { success: false, message: 'Recipient and amount are required' };
     }
-    const ref = `TRF${Date.now()}`;
-    addTransaction({
-      id: ref,
-      type: 'Transfer',
-      service: `Transfer to ${recipient}`,
-      amount,
-      note,
-      status: 'success',
-      date: new Date().toISOString().replace('T', ' ').slice(0, 16),
-    });
-    return {
-      success: true,
-      message: 'Transfer successful',
-      data: { reference: ref, recipient, amount, status: 'success' },
-    };
+    return { success: false, message: 'Transfer failed. Please try again.' };
   },
 
   // ── Transactions ──
   getTransactions: async () => {
-    // Try backend first
-    const res = await callBackend('/api/transactions');
-    if (res?.success && res.data?.length > 0) {
-      return { success: true, data: res.data };
+    const res = await callBackend('/api/user/');
+    if (res?.success && res.data?.transactions) {
+      return { success: true, data: res.data.transactions };
     }
-    // Fallback to local mock
-    await simulateDelay(500);
-    return { success: true, data: transactions };
+    return { success: true, data: [] };
   },
 
   // ── Receipt ──
   getReceipt: async (ref) => {
-    // Try backend first
-    const res = await callBackend(`/api/transactions/${ref}`);
+    const res = await callBackend(`/api/user/${ref}`);
     if (res?.success) return res;
-
-    // Fallback to local mock
-    await simulateDelay(500);
-    const txn = transactions.find((t) => t.id === ref);
-    if (txn) {
-      return { success: true, data: txn };
-    }
     return { success: false, message: 'Transaction not found' };
   },
 };

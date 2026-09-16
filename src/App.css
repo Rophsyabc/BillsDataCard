@@ -437,15 +437,31 @@
   cursor: pointer;
   font-size: 0.9rem;
   font-weight: 600;
+  color: var(--text);
   transition: all 0.15s;
+  min-height: 44px;
 }
 .amount-btn:hover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+.amount-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
   border-color: var(--primary);
 }
 .amount-btn.selected {
   border-color: var(--primary);
-  background: var(--primary-light);
-  color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(108,99,255,0.3);
+}
+.amount-btn:active {
+  transform: scale(0.97);
+}
+.amount-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .plans-grid,

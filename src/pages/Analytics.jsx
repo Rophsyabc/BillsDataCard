@@ -36,7 +36,7 @@ export default function Analytics() {
       <p className="subtitle">Track your spending patterns</p>
 
       <div className="wallet-tabs" style={{ marginBottom: 24 }}>
-        {[{ v: '7', l: '7 Days' }, { v: '30', l: '30 Days' }, { v: '90', l: '90 Days' }, { v: '365', l: '1 Year' }].map(p => (
+        {[{ v: '7', l: '7 Days' }, { v: '30', l: '30 Days' }, { v: '90', l: '90 Days' }, { v: '365', l: '1 Year' }, { v: '0', l: 'All Time' }].map(p => (
           <button key={p.v} className={`wallet-tab ${period === p.v ? 'active' : ''}`} onClick={() => setPeriod(p.v)}>{p.l}</button>
         ))}
       </div>

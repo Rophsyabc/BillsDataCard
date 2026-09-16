@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { api } from '../api/api';
 
+function isMoneyIn(type) {
+  const t = (type || '').toLowerCase();
+  return t.includes('wallet') || t.includes('fund') || t.includes('refund') || t.includes('cashback') || t.includes('referral') || t.includes('reversal');
+}
+
 export default function Receipt() {
   const [ref, setRef] = useState('');
   const [loading, setLoading] = useState(false);
@@ -102,7 +107,9 @@ export default function Receipt() {
             )}
             <div className="receipt-row highlight">
               <span>Amount</span>
-              <span className="receipt-value">₦{receipt.amount?.toLocaleString()}</span>
+              <span className={`receipt-value ${isMoneyIn(receipt.type) ? 'txn-money-in' : 'txn-money-out'}`}>
+                {isMoneyIn(receipt.type) ? '+' : '-'}₦{receipt.amount?.toLocaleString()}
+              </span>
             </div>
             <div className="receipt-row">
               <span>Date</span>

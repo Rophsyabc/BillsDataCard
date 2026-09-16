@@ -45,16 +45,23 @@ router.get('/analytics/summary', authMiddleware, (req, res) => {
   try {
     const { period = '30' } = req.query;
     const days = parseInt(period, 10);
-    if (isNaN(days) || days < 1 || days > 365) {
-      return res.status(400).json({ success: false, message: 'Period must be 1-365 days' });
+    if (isNaN(days) || days < 0 || days > 3650) {
+      return res.status(400).json({ success: false, message: 'Period must be 0-3650 days' });
     }
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-    const totalSpent = db.prepare('SELECT SUM(amount) as total FROM transactions WHERE userId = ? AND createdAt >= ? AND status = ?').get(req.user.id, since, 'success');
-    const totalTxns = db.prepare('SELECT COUNT(*) as count FROM transactions WHERE userId = ? AND createdAt >= ?').get(req.user.id, since);
-    const byType = db.prepare('SELECT type, SUM(amount) as total, COUNT(*) as count FROM transactions WHERE userId = ? AND createdAt >= ? AND status = ? GROUP BY type ORDER BY total DESC').all(req.user.id, since, 'success');
-    const byDay = db.prepare("SELECT DATE(createdAt) as date, SUM(amount) as total, COUNT(*) as count FROM transactions WHERE userId = ? AND createdAt >= ? AND status = ? GROUP BY DATE(createdAt) ORDER BY date").all(req.user.id, since, 'success');
-    const byService = db.prepare('SELECT service, SUM(amount) as total, COUNT(*) as count FROM transactions WHERE userId = ? AND createdAt >= ? AND status = ? GROUP BY service ORDER BY total DESC LIMIT 10').all(req.user.id, since, 'success');
+    let sinceCondition = '';
+    const params = [req.user.id];
+    if (days > 0) {
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      sinceCondition = ' AND createdAt >= ?';
+      params.push(since);
+    }
+
+    const totalSpent = db.prepare(`SELECT SUM(amount) as total FROM transactions WHERE userId = ?${sinceCondition} AND status = 'success'`).get(...params);
+    const totalTxns = db.prepare(`SELECT COUNT(*) as count FROM transactions WHERE userId = ?${sinceCondition}`).get(...params);
+    const byType = db.prepare(`SELECT type, SUM(amount) as total, COUNT(*) as count FROM transactions WHERE userId = ?${sinceCondition} AND status = 'success' GROUP BY type ORDER BY total DESC`).all(...params);
+    const byDay = db.prepare(`SELECT DATE(createdAt) as date, SUM(amount) as total, COUNT(*) as count FROM transactions WHERE userId = ?${sinceCondition} AND status = 'success' GROUP BY DATE(createdAt) ORDER BY date`).all(...params);
+    const byService = db.prepare(`SELECT service, SUM(amount) as total, COUNT(*) as count FROM transactions WHERE userId = ?${sinceCondition} AND status = 'success' GROUP BY service ORDER BY total DESC LIMIT 10`).all(...params);
 
     const wallet = db.prepare('SELECT balance FROM wallet WHERE userId = ?').get(req.user.id);
 
@@ -111,6 +118,35 @@ router.delete('/reminders/:id', authMiddleware, (req, res) => {
     res.json({ success: true, message: 'Reminder deleted' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed' });
+  }
+});
+
+router.get('/rewards/summary', authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const cashbackResult = db.prepare("SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE userId = ? AND type = 'Cashback' AND status = 'success'").get(userId);
+    const referralResult = db.prepare("SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE userId = ? AND type = 'Referral' AND status = 'success'").get(userId);
+
+    const referralCode = db.prepare('SELECT referralCode FROM users WHERE id = ?').get(userId);
+    const referralCount = db.prepare('SELECT COUNT(*) as count FROM users WHERE referredBy = ?').get(userId);
+
+    const recentCashback = db.prepare("SELECT id, service, amount, createdAt FROM transactions WHERE userId = ? AND type = 'Cashback' AND status = 'success' ORDER BY createdAt DESC LIMIT 5").all(userId);
+    const recentReferralEarnings = db.prepare("SELECT id, service, amount, createdAt FROM transactions WHERE userId = ? AND type = 'Referral' AND status = 'success' ORDER BY createdAt DESC LIMIT 5").all(userId);
+
+    res.json({
+      success: true,
+      data: {
+        totalCashback: cashbackResult?.total || 0,
+        referralEarnings: referralResult?.total || 0,
+        referralCode: referralCode?.referralCode || null,
+        referralCount: referralCount?.count || 0,
+        recentCashback,
+        recentReferralEarnings,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to get rewards summary' });
   }
 });
 
