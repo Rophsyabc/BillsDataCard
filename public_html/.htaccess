@@ -9,8 +9,8 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 
 # Proxy all requests to the Node.js server
-RewriteRule ^(.*)$ http://127.0.0.1:3000/$1 [P,L]
+RewriteRule ^(.*)$ http://127.0.0.1:4000/$1 [P,L]
 
 # Proxy WebSocket connections (if needed)
 RewriteCond %{HTTP:Upgrade} =websocket
-RewriteRule /(.*) ws://127.0.0.1:3000/$1 [P,L]
+RewriteRule /(.*) ws://127.0.0.1:4000/$1 [P,L]

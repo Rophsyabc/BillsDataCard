@@ -9,6 +9,7 @@ const router = Router();
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 const PAYSTACK_WEBHOOK_SECRET = process.env.PAYSTACK_WEBHOOK_SECRET;
 const PAYSTACK_BASE = 'https://api.paystack.co';
+const APP_URL = process.env.APP_URL || process.env.VITE_API_URL || 'https://billsdatacard.onrender.com';
 
 async function paystackRequest(path, options = {}) {
   if (!PAYSTACK_SECRET) {
@@ -60,7 +61,7 @@ router.post('/initialize', authMiddleware, async (req, res) => {
       return res.status(503).json({ success: false, message: 'Paystack not configured' });
     }
 
-    const callbackUrl = `${req.headers.origin || 'http://localhost:4000'}/wallet?reference={reference}`;
+    const callbackUrl = `${APP_URL}/wallet?reference={reference}`;
 
     const result = await paystackRequest('/transaction/initialize', {
       method: 'POST',

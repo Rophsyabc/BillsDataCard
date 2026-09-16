@@ -19,32 +19,41 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
+const PRODUCTION_URL = 'https://billsdatacard.onrender.com';
 
-const allowedOrigins = [
-  'https://localhost',
-  'capacitor://localhost',
+// ── Allowed Origins ──
+const devOrigins = [
   'http://localhost:5173',
   'http://localhost:4000',
-  'https://billsdatacard.onrender.com',
+  'https://localhost',
+  'capacitor://localhost',
 ];
 
-if (isProduction && process.env.ALLOWED_ORIGIN) {
-  allowedOrigins.push(...process.env.ALLOWED_ORIGIN.split(','));
+const productionOrigins = [
+  PRODUCTION_URL,
+];
+
+const allowedOrigins = isProduction ? productionOrigins : devOrigins;
+
+if (process.env.ALLOWED_ORIGIN) {
+  allowedOrigins.push(...process.env.ALLOWED_ORIGIN.split(',').map(o => o.trim()));
 }
+
+// Deduplicate
+const uniqueOrigins = [...new Set(allowedOrigins)];
 
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
 
-    if (isProduction) {
-      if (allowedOrigins.indexOf(origin) !== -1) {
-        callback(null, true);
-      } else {
-        console.error(`[cors] Blocked origin: ${origin}`);
-        callback(new Error('Not allowed by CORS'));
-      }
-    } else {
+    if (uniqueOrigins.indexOf(origin) !== -1) {
       callback(null, true);
+    } else if (!isProduction) {
+      // Allow all origins in development
+      callback(null, true);
+    } else {
+      console.error(`[cors] Blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
     }
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -53,14 +62,58 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 
+// ── HTTPS Enforcement (production) ──
+if (isProduction) {
+  app.use((req, res, next) => {
+    if (req.headers['x-forwarded-proto'] !== 'https' && !req.path.startsWith('/api')) {
+      return res.redirect(301, `https://${req.headers.host}${req.url}`);
+    }
+    next();
+  });
+}
+
+// ── Path Normalization — prevent ".." traversal ──
+app.use((req, res, next) => {
+  // Decode and normalize the URL to prevent path traversal
+  const decoded = decodeURIComponent(req.url);
+  if (decoded.includes('..')) {
+    // Normalize: remove ".." segments
+    const normalized = decoded.replace(/\/\.\.\//g, '/').replace(/\.\.\//g, '').replace(/\/\.\.$/, '');
+    if (normalized !== decoded) {
+      req.url = normalized;
+    }
+  }
+  next();
+});
+
+// ── Trailing Slash Normalization ──
+// Redirect /path to /path/ for non-API, non-asset routes
+app.use((req, res, next) => {
+  // Skip API routes, static assets, and routes with file extensions
+  if (
+    req.path.startsWith('/api') ||
+    req.path.startsWith('/auth') ||
+    req.path.includes('.') ||
+    req.method !== 'GET' ||
+    req.path === '/'
+  ) {
+    return next();
+  }
+  // If the path doesn't end with / and isn't an asset, redirect
+  if (!req.path.endsWith('/') && !req.path.match(/\.\w+$/)) {
+    return res.redirect(301, req.url + '/');
+  }
+  next();
+});
+
 if (isProduction) {
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     next();
@@ -544,10 +597,14 @@ app.get('/api/reloadly/commissions', async (_req, res) => {
   }
 });
 
+// ── SPA Fallback — serve index.html for all non-API routes ──
 app.get('/{*splat}', (req, res, next) => {
-  if (req.path.startsWith('/api')) {
+  // Skip API routes
+  if (req.path.startsWith('/api') || req.path.startsWith('/auth')) {
     return next();
   }
+  // Set canonical URL header
+  res.setHeader('Link', `<${PRODUCTION_URL}${req.path}>; rel="canonical"`);
   res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
 });
 
