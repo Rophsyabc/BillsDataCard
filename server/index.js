@@ -128,7 +128,11 @@ if (isProduction) {
 
 app.use(express.static(path.join(__dirname, '..', 'dist')));
 
-app.use('/auth', authLimiter);
+// Apply strict rate limiting only to sensitive auth mutation endpoints
+app.use('/auth/login', authLimiter);
+app.use('/auth/signup', authLimiter);
+app.use('/auth/forgot-password', authLimiter);
+app.use('/auth/reset-password', authLimiter);
 app.use('/api/payment', paymentLimiter);
 app.use('/api', apiLimiter);
 
@@ -146,9 +150,40 @@ const networks = [
   { id: 'smile', name: 'Smile' },
 ];
 
+// ── Admin Bootstrap: force-promote configured admin emails ──
+// Protected by ADMIN_SECRET env var. Call once after first deploy + signup.
+app.post('/api/admin-bootstrap', (req, res) => {
+  const secret = process.env.ADMIN_SECRET;
+  if (!secret || req.headers['x-admin-secret'] !== secret) {
+    return res.status(403).json({ success: false, message: 'Forbidden' });
+  }
+
+  const rawEmails = (process.env.ADMIN_EMAILS || 'nathanielrop84@gmail.com,rophsynathaniel@gmail.com')
+    .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+
+  const results = [];
+  for (const email of rawEmails) {
+    try {
+      const user = db.prepare('SELECT id, email, role, status FROM users WHERE LOWER(email) = ?').get(email);
+      if (!user) {
+        results.push({ email, status: 'not_found' });
+        continue;
+      }
+      db.prepare("UPDATE users SET role = 'admin' WHERE LOWER(email) = ?").run(email);
+      const updated = db.prepare('SELECT id, email, role, status FROM users WHERE LOWER(email) = ?').get(email);
+      results.push({ email, status: 'promoted', before: user.role, after: updated.role, userId: user.id });
+    } catch (err) {
+      results.push({ email, status: 'error', message: err.message });
+    }
+  }
+  console.log('[admin-bootstrap] Promotion results:', JSON.stringify(results));
+  res.json({ success: true, data: results });
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
 
 app.get('/api/wallet', authMiddleware, (req, res) => {
   const userId = req.user.id;
