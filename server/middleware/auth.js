@@ -27,7 +27,7 @@ export function isTokenRevoked(tokenId) {
 export function generateToken(user) {
   const jti = crypto.randomUUID();
   return jwt.sign(
-    { id: user.id, email: user.email, name: user.name, jti },
+    { id: user.id, email: user.email, name: user.name, role: user.role || 'user', jti },
     JWT_SECRET,
     { expiresIn: '1h', issuer: 'paybills', audience: 'paybills-api' }
   );

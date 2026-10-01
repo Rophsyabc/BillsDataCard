@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
-import db from '../data/db.js';
+import db, { adminEmails } from '../data/db.js';
 import { generateToken, generateRefreshToken, verifyToken, verifyRefreshToken, revokeToken, authMiddleware } from '../middleware/auth.js';
 import { authLimiter, signupLimiter, passwordResetLimiter, twoFactorLimiter } from '../middleware/rateLimit.js';
 
@@ -63,16 +63,18 @@ router.post('/signup', signupLimiter, async (req, res) => {
     });
     insertUser();
 
-    // First user becomes admin
+    // First user or configured admin email becomes admin
     const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
-    if (userCount === 1) {
+    const isConfiguredAdmin = adminEmails.includes(email.toLowerCase());
+    const assignedRole = (userCount === 1 || isConfiguredAdmin) ? 'admin' : 'user';
+    if (assignedRole === 'admin') {
       db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(userId);
     }
 
     const tokenExp = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     db.prepare(`INSERT INTO verification_tokens (token, userId, expiresAt) VALUES (?, ?, ?)`).run(verificationToken, userId, tokenExp);
 
-    const token = generateToken({ id: userId, email, name });
+    const token = generateToken({ id: userId, email, name, role: assignedRole });
     const refreshToken = generateRefreshToken({ id: userId, email });
 
     const sessionId = `SES-${uuidv4().slice(0, 8)}`;
@@ -82,7 +84,7 @@ router.post('/signup', signupLimiter, async (req, res) => {
       success: true,
       message: 'Account created. Please check your email to verify your account.',
       data: {
-        user: { id: userId, name, email, phone: phone || '', emailVerified: false, referralCode: userReferralCode, role: userCount === 1 ? 'admin' : 'user', status: 'active' },
+        user: { id: userId, name, email, phone: phone || '', emailVerified: false, referralCode: userReferralCode, role: assignedRole, status: 'active' },
         token,
         refreshToken,
         verificationToken,
@@ -116,12 +118,18 @@ router.post('/login', authLimiter, async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
+    // Auto-promote configured admin emails
+    if (adminEmails.includes(user.email.toLowerCase()) && user.role !== 'admin') {
+      db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(user.id);
+      user.role = 'admin';
+    }
+
     if (user.twoFactorEnabled) {
-      const tempToken = generateToken({ id: user.id, email: user.email, pending2FA: true });
+      const tempToken = generateToken({ id: user.id, email: user.email, role: user.role, pending2FA: true });
       return res.json({ success: true, data: { requires2FA: true, tempToken } });
     }
 
-    const token = generateToken({ id: user.id, email: user.email, name: user.name });
+    const token = generateToken({ id: user.id, email: user.email, name: user.name, role: user.role });
     const refreshToken = generateRefreshToken({ id: user.id, email: user.email });
 
     const sessionId = `SES-${uuidv4().slice(0, 8)}`;
@@ -299,7 +307,13 @@ router.post('/google', async (req, res) => {
       user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
     }
 
-    const token = generateToken({ id: user.id, email: user.email, name: user.name });
+    // Auto-promote configured admin emails
+    if (adminEmails.includes(user.email.toLowerCase()) && user.role !== 'admin') {
+      db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(user.id);
+      user.role = 'admin';
+    }
+
+    const token = generateToken({ id: user.id, email: user.email, name: user.name, role: user.role });
     const refreshToken = generateRefreshToken({ id: user.id, email: user.email });
 
     const sessionId = `SES-${uuidv4().slice(0, 8)}`;
@@ -333,10 +347,10 @@ router.post('/refresh', async (req, res) => {
 
     revokeToken(decoded.jti);
 
-    const newToken = generateToken({ id: user.id, email: user.email, name: user.name });
+    const newToken = generateToken({ id: user.id, email: user.email, name: user.name, role: user.role });
     const newRefreshToken = generateRefreshToken({ id: user.id, email: user.email });
 
-    res.json({ success: true, data: { token: newToken, refreshToken: newRefreshToken } });
+    res.json({ success: true, data: { token: newToken, refreshToken: newRefreshToken, user: { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status } } });
   } catch (err) {
     res.status(401).json({ success: false, message: 'Invalid refresh token' });
   }
@@ -350,7 +364,7 @@ router.get('/profile', authMiddleware, (req, res) => {
     const wallet = db.prepare('SELECT * FROM wallet WHERE userId = ?').get(user.id);
     res.json({
       success: true,
-      data: { id: user.id, name: user.name, email: user.email, phone: user.phone, emailVerified: !!user.emailVerified, photo: user.photo, referralCode: user.referralCode, twoFactorEnabled: !!user.twoFactorEnabled, balance: wallet?.balance || 0 },
+      data: { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status, phone: user.phone, emailVerified: !!user.emailVerified, photo: user.photo, referralCode: user.referralCode, twoFactorEnabled: !!user.twoFactorEnabled, balance: wallet?.balance || 0 },
     });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to get profile' });
@@ -503,4 +517,41 @@ router.post('/reset-password', passwordResetLimiter, async (req, res) => {
   }
 });
 
+// GET /auth/me — returns fresh user data from DB (role, status, etc.)
+router.get('/me', authMiddleware, (req, res) => {
+  try {
+    const user = db.prepare('SELECT id, name, email, role, status, phone, emailVerified, photo, referralCode, twoFactorEnabled FROM users WHERE id = ?').get(req.user.id);
+    if (!user) return res.status(401).json({ success: false, message: 'User not found' });
+    if (user.status !== 'active') return res.status(403).json({ success: false, message: 'Account is not active' });
+
+    // Auto-promote if configured admin and not yet promoted
+    if (adminEmails.includes(user.email.toLowerCase()) && user.role !== 'admin') {
+      db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(user.id);
+      user.role = 'admin';
+    }
+
+    const wallet = db.prepare('SELECT balance FROM wallet WHERE userId = ?').get(user.id);
+    res.json({
+      success: true,
+      data: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+        phone: user.phone,
+        emailVerified: !!user.emailVerified,
+        photo: user.photo,
+        referralCode: user.referralCode,
+        twoFactorEnabled: !!user.twoFactorEnabled,
+        balance: wallet?.balance || 0,
+      },
+    });
+  } catch (err) {
+    console.error('[auth] /me error:', err.message);
+    res.status(500).json({ success: false, message: 'Failed' });
+  }
+});
+
 export default router;
+

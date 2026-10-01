@@ -196,6 +196,24 @@ for (const sql of userMigrations) {
   } catch {}
 }
 
+// Configured admin emails
+export const adminEmails = (process.env.ADMIN_EMAILS || 'nathanielrop84@gmail.com,rophsynathaniel@gmail.com')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean);
+
+// Ensure configured administrators always have admin role in database
+for (const email of adminEmails) {
+  try {
+    const updated = db.prepare("UPDATE users SET role = 'admin' WHERE LOWER(email) = ?").run(email);
+    if (updated.changes > 0) {
+      console.log(`[db] Promoted configured administrator: ${email}`);
+    }
+  } catch (err) {
+    console.error(`[db] Failed to promote ${email}:`, err.message);
+  }
+}
+
 
 
 // Seed default settings

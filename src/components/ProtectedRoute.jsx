@@ -4,11 +4,13 @@ import { useApp } from '../context/AppContext';
 export default function ProtectedRoute({ children, adminOnly }) {
   const { user, token } = useApp();
 
+  // Not authenticated — send to login
   if (!user || !token) {
     return <Navigate to="/login" replace />;
   }
 
-  if (adminOnly && user?.role !== 'admin') {
+  // Admin-only route: user doesn't have admin role
+  if (adminOnly && user?.role?.toLowerCase() !== 'admin') {
     return <Navigate to="/" replace />;
   }
 

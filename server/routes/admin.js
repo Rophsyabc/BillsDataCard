@@ -435,4 +435,53 @@ router.delete('/announcements/:id', (req, res) => {
   }
 });
 
+// ── KYC management (proxy) ──
+router.get('/kyc', (req, res) => {
+  try {
+    const { status } = req.query;
+    let query = `
+      SELECT kj.id, kj.userId, kj.status, kj.kycType, kj.ninNumber, kj.nameOnNin, kj.photoSource, kj.adminNote, kj.createdAt, kj.updatedAt,
+             u.name as userName, u.email as userEmail, u.phone as userPhone
+      FROM kyc_jobs kj
+      JOIN users u ON u.id = kj.userId
+    `;
+    const params = [];
+    if (status) {
+      query += ' WHERE kj.status = ?';
+      params.push(status);
+    } else {
+      query += " WHERE kj.status IN ('pending', 'verified', 'rejected', 'resubmission_required')";
+    }
+    query += ' ORDER BY kj.createdAt DESC LIMIT 100';
+    const jobs = db.prepare(query).all(...params);
+    res.json({ success: true, data: jobs });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to get KYC submissions' });
+  }
+});
+
+router.post('/kyc/review', (req, res) => {
+  try {
+    const { jobId, action, note } = req.body;
+    if (!jobId || !action || !['approve', 'reject', 'resubmit'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'jobId and action (approve/reject/resubmit) required' });
+    }
+    const job = db.prepare('SELECT * FROM kyc_jobs WHERE id = ?').get(jobId);
+    if (!job) return res.status(404).json({ success: false, message: 'KYC job not found' });
+
+    const newStatus = action === 'approve' ? 'verified' : action === 'resubmit' ? 'resubmission_required' : 'rejected';
+
+    db.prepare("UPDATE kyc_jobs SET status = ?, adminNote = ?, reviewedBy = ?, updatedAt = datetime('now') WHERE id = ?").run(
+      newStatus, note || '', req.user.id, jobId
+    );
+    db.prepare('UPDATE users SET kycStatus = ?, kycType = ? WHERE id = ?').run(
+      newStatus, job.kycType || 'NIN', job.userId
+    );
+
+    res.json({ success: true, message: `KYC ${action}d successfully`, data: { jobId, status: newStatus } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to review KYC' });
+  }
+});
+
 export default router;
