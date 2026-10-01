@@ -17,7 +17,7 @@ services:
       - key: ALLOWED_ORIGIN
         value: https://billsdatacard.onrender.com
       - key: ADMIN_EMAILS
-        value: nathanielrop84@gmail.com,rophsynathaniel@gmail.com
+        value: soardev.nath@gmail.com
       - key: ADMIN_SECRET
         sync: false
       - key: JWT_SECRET

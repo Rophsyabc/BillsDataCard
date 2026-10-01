@@ -197,7 +197,7 @@ for (const sql of userMigrations) {
 }
 
 // Configured admin emails
-export const adminEmails = (process.env.ADMIN_EMAILS || 'nathanielrop84@gmail.com,rophsynathaniel@gmail.com')
+export const adminEmails = (process.env.ADMIN_EMAILS || 'soardev.nath@gmail.com')
   .split(',')
   .map(e => e.trim().toLowerCase())
   .filter(Boolean);

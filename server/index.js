@@ -158,7 +158,7 @@ app.post('/api/admin-bootstrap', (req, res) => {
     return res.status(403).json({ success: false, message: 'Forbidden' });
   }
 
-  const rawEmails = (process.env.ADMIN_EMAILS || 'nathanielrop84@gmail.com,rophsynathaniel@gmail.com')
+  const rawEmails = (process.env.ADMIN_EMAILS || 'soardev.nath@gmail.com')
     .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 
   const results = [];
